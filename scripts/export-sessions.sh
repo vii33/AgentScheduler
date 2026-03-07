@@ -11,9 +11,60 @@
 
 set -euo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/export-sessions.sh [--date YYYY-MM-DD] [--host HOST] [--port PORT]
+
+Examples:
+  ./scripts/export-sessions.sh
+  ./scripts/export-sessions.sh --date 2026-03-07
+  ./scripts/export-sessions.sh --host 127.0.0.1 --port 4096
+EOF
+}
+
 # ── Configuration ──────────────────────────────────────────────────────────────
 HOST="${OPENCODE_HOST:-127.0.0.1}"
 PORT="${OPENCODE_PORT:-4096}"
+TARGET_DATE=""
+
+# ── Argument parsing ────────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --date)
+      [[ $# -ge 2 ]] || { echo "ERROR: --date requires a value" >&2; usage; exit 1; }
+      TARGET_DATE="$2"
+      shift 2
+      ;;
+    --host)
+      [[ $# -ge 2 ]] || { echo "ERROR: --host requires a value" >&2; usage; exit 1; }
+      HOST="$2"
+      shift 2
+      ;;
+    --port)
+      [[ $# -ge 2 ]] || { echo "ERROR: --port requires a value" >&2; usage; exit 1; }
+      PORT="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      # Backward-compatible: allow a single positional date argument.
+      if [[ -z "$TARGET_DATE" ]]; then
+        TARGET_DATE="$1"
+        shift
+      else
+        echo "ERROR: Unknown argument: $1" >&2
+        usage
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+TARGET_DATE="${TARGET_DATE:-$(date +%Y-%m-%d)}"
 BASE_URL="http://${HOST}:${PORT}"
 
 # Optional HTTP Basic Auth
@@ -22,14 +73,6 @@ if [[ -n "${OPENCODE_PASSWORD:-}" ]]; then
   USER="${OPENCODE_USERNAME:-opencode}"
   AUTH_ARGS=(-u "${USER}:${OPENCODE_PASSWORD}")
 fi
-
-# ── Argument parsing ────────────────────────────────────────────────────────────
-TARGET_DATE="${1:-}"
-if [[ "$TARGET_DATE" == "--date" ]]; then
-  TARGET_DATE="${2:-}"
-  shift 2
-fi
-TARGET_DATE="${TARGET_DATE:-$(date +%Y-%m-%d)}"
 
 # ── Paths ───────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
