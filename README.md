@@ -84,6 +84,25 @@ Defined in `crons/tasks.md`:
 | `daily-analysis` | 23:15 daily | Analyse export → update `MEMORY.md` |
 | `weekly-review` | 09:00 Monday | Summarise week → `memory/knowledge/weekly-YYYY-Www.md` |
 
+Run the scheduler loop:
+
+```bash
+# Run continuously (poll every 60s)
+node scripts/task-loop.js
+
+# Run one iteration
+node scripts/task-loop.js --once
+
+# Test due-task matching without side effects
+node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
+```
+
+Task compilation model:
+
+- Preferred: `zen/minimax2.5-free`
+- Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
+- Override manually: `OPENCODE_TASK_MODEL=provider/model`
+
 ---
 
 ## Prerequisites
@@ -135,5 +154,5 @@ The fastest way to try MiniClaw is a GitHub Codespace — a cloud VM with everyt
 ## Roadmap
 
 - [ ] Implement session chat loop (CLI)
-- [ ] Cron task runner (shell or Node.js)
+- [x] Cron task runner (shell or Node.js)
 - [ ] Web UI (stretch goal)

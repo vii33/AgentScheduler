@@ -52,7 +52,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       # Backward-compatible: allow a single positional date argument.
-      if [[ -z "$TARGET_DATE" ]]; then
+      # Any unknown option-like token should fail fast to avoid silent typos.
+      if [[ "$1" == -* ]]; then
+        echo "ERROR: Unknown argument: $1" >&2
+        usage
+        exit 1
+      elif [[ -z "$TARGET_DATE" ]]; then
         TARGET_DATE="$1"
         shift
       else
@@ -109,8 +114,8 @@ format_role() {
 echo "Exporting Opencode sessions for ${TARGET_DATE}..."
 check_server
 
-# List all sessions
-SESSIONS=$(api_get "/session")
+# List all sessions across projects/workspaces.
+SESSIONS=$(api_get "/experimental/session")
 SESSION_COUNT=$(echo "$SESSIONS" | jq 'length')
 
 if [[ "$SESSION_COUNT" -eq 0 ]]; then
@@ -118,9 +123,20 @@ if [[ "$SESSION_COUNT" -eq 0 ]]; then
   exit 0
 fi
 
-# Filter sessions created on TARGET_DATE (ISO 8601 prefix match)
-TODAY_SESSIONS=$(echo "$SESSIONS" | jq --arg date "$TARGET_DATE" \
-  '[.[] | select(.created | startswith($date))]')
+# Filter sessions created on TARGET_DATE.
+# Supports both legacy shape (.created as ISO string) and
+# experimental shape (.time.created as epoch milliseconds).
+TODAY_SESSIONS=$(echo "$SESSIONS" | jq --arg date "$TARGET_DATE" '
+  def session_date:
+    if (.created? | type) == "string" then
+      .created[0:10]
+    elif (.time.created? | type) == "number" then
+      (.time.created / 1000 | strflocaltime("%Y-%m-%d"))
+    else
+      ""
+    end;
+  [.[] | select(session_date == $date)]
+')
 TODAY_COUNT=$(echo "$TODAY_SESSIONS" | jq 'length')
 
 if [[ "$TODAY_COUNT" -eq 0 ]]; then
@@ -144,8 +160,14 @@ echo "Found ${TODAY_COUNT} session(s) for ${TARGET_DATE}."
   echo "$TODAY_SESSIONS" | jq -c '.[]' | while read -r session; do
     SESSION_ID=$(echo "$session" | jq -r '.id')
     TITLE=$(echo "$session"     | jq -r '.title // "Untitled"')
-    CREATED=$(echo "$session"   | jq -r '.created // ""')
-    MODEL=$(echo "$session"     | jq -r '.model // "unknown"')
+    CREATED=$(echo "$session"   | jq -r '
+      .created //
+      (if (.time.created? | type) == "number" then
+         (.time.created / 1000 | strflocaltime("%Y-%m-%dT%H:%M:%S%z"))
+       else
+         ""
+       end)')
+    MODEL=$(echo "$session"     | jq -r '.model // .version // "unknown"')
 
     echo "### ${TITLE}"
     echo "- **ID:** \`${SESSION_ID}\`"
@@ -165,7 +187,7 @@ echo "Found ${TODAY_COUNT} session(s) for ${TARGET_DATE}."
       echo "|---|------|---------|"
       echo "$MESSAGES" | jq -c 'to_entries[]' | while read -r entry; do
         IDX=$(echo "$entry"     | jq -r '.key + 1')
-        ROLE=$(echo "$entry"    | jq -r '.value.role // "unknown"')
+        ROLE=$(echo "$entry"    | jq -r '.value.role // .value.info.role // "unknown"')
         # Grab first text part; strip newlines and pipe chars for table safety
         CONTENT=$(echo "$entry" | jq -r '
           .value.parts[]? |

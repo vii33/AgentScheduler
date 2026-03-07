@@ -10,7 +10,7 @@ Only failures are reported to the user; successful runs are silent._
 - **Schedule:** `0 23 * * *` _(23:00 every day)_
 - **Action:** Run `scripts/export-sessions.sh` to fetch all of today's Opencode sessions via
   the API and write them to `memory/history/YYYY-MM-DD.md`.
-- **Last run:** _(never)_
+- **Last run:** 2026-03-07T23:34:49.822Z
 
 ---
 
