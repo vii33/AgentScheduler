@@ -1,7 +1,8 @@
 # Cron Tasks
 
 _Scheduled background tasks for MiniClaw.  
-The agent re-reads this file before each run and updates `Last run` after completion._
+The agent re-reads this file before each run and updates `Last run` after completion.  
+Only failures are reported to the user; successful runs are silent._
 
 ---
 
@@ -15,9 +16,9 @@ The agent re-reads this file before each run and updates `Last run` after comple
 
 ## daily-analysis
 - **Schedule:** `15 23 * * *` _(23:15 every day, after daily-export)_
-- **Action:** Read today's `memory/history/YYYY-MM-DD.md`, summarise what was worked on,
-  extract key decisions or learnings, and append them as dated entries to `memory/facts.md`
-  under the appropriate headings.
+- **Action:** Read `memory/history/YYYY-MM-DD.md`. Extract key decisions, lessons learned,
+  and user preferences. Append them as dated entries to `MEMORY.md` under the correct headings.
+  Write a one-paragraph plain-English summary into the `## Summary` section of today's history file.
 - **Last run:** _(never)_
 
 ---
