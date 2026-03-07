@@ -1,0 +1,12 @@
+# Environment — never commit secrets
+.env
+
+# Generated daily session export files (optional: track them if you want history in git)
+# memory/history/*.md
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/settings.json
