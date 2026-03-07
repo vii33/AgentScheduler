@@ -1,5 +1,7 @@
 # MiniClaw
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vii33/MiniClaw)
+
 A simple, Markdown-first AI assistant that integrates with [Opencode](https://opencode.ai) via its built-in HTTP server. Inspired by Openclaw, but stripped down to the essentials: a two-layer persistent memory system, daily session export, and scheduled cron tasks — no database required.
 
 ---
@@ -91,6 +93,31 @@ Defined in `crons/tasks.md`:
   ```bash
   opencode serve --port 4096
   ```
+
+---
+
+## Testing in GitHub Codespaces
+
+The fastest way to try MiniClaw is a GitHub Codespace — a cloud VM with everything pre-installed.
+
+1. Click the **Open in Codespaces** badge above (or go to **Code → Codespaces → New codespace**).
+2. The container installs `opencode`, `curl`, and `jq` automatically.
+3. Inside the terminal:
+
+   ```bash
+   # Start the Opencode server (needs an API key configured)
+   opencode serve --port 4096
+
+   # In a second terminal — export today's sessions
+   ./scripts/export-sessions.sh
+
+   # View the result
+   cat memory/history/$(date +%Y-%m-%d).md
+   ```
+
+4. Port `4096` is automatically forwarded, so you can also open `http://localhost:4096/global/health` in the Codespace browser to verify the server is up.
+
+> **Note:** Opencode requires an LLM provider API key. Set it up with `opencode` on first run — it will guide you through provider selection.
 
 ---
 
