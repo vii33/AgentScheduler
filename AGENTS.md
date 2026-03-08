@@ -144,6 +144,13 @@ Rules:
 - Never run a task more than once for the same scheduled interval.
 - Only failures are reported to the user; successful runs are silent unless the output is the point.
 
+### Session isolation
+
+`scripts/task-loop.js` compiles and executes tasks by calling `opencode run` via
+`spawnSync`. Each `opencode run` invocation starts a **brand-new Opencode session** with
+no shared conversation history — it does not attach to or pollute the current interactive
+session's context window. No additional isolation mechanism is required.
+
 ---
 
 ## Writing Style
