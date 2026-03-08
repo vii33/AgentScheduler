@@ -118,6 +118,25 @@ Implement exactly what is requested. Do not expand scope or add unrequested feat
 
 Scheduled tasks are declared in `crons/tasks.md`.
 
+### Authoring a new task
+
+Add a task block to `crons/tasks.md` using this format:
+
+```markdown
+## <task-name>
+- **Schedule:** `<cron expression>` _(<human description>)_
+- **Action:** <what the task does and which scripts/files it touches>
+- **Last run:** _(never)_
+```
+
+Rules:
+- Task name is a unique `##` heading (lowercase-hyphenated).
+- `Schedule` uses standard 5-field cron syntax.
+- `Action` describes what the task does and references any scripts or output files.
+- `Last run` starts as `_(never)_`; the runner updates it after each successful run.
+- If the task depends on a script, template, or output directory that does not yet exist,
+  create or update it before adding the task block.
+
 ### Task runner rules
 - Re-read `crons/tasks.md` before each run to pick up any edits.
 - After a successful run, update the `**Last run:**` field.
