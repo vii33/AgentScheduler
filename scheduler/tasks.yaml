@@ -1,0 +1,10 @@
+tasks:
+  - name: daily-export
+    description: "Exports daily records."
+    prompt: "Ensure data is consistent and export runs smoothly."
+  - name: daily-analysis
+    description: "Analyzes daily records for insights."
+    prompt: "Check for any anomalies in the data."
+  - name: weekly-review
+    description: "Reviews weekly performance metrics."
+    prompt: "Prepare summary and highlight key findings."
