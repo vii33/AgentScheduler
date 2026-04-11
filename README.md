@@ -12,7 +12,7 @@ A simple, Markdown-first AI assistant that integrates with [Opencode](https://op
 - **Session Export** — Fetches today's Opencode sessions nightly and writes them to `memory/history/YYYY-MM-DD.md`.
 - **Analysis** — Reads each daily export and synthesises key decisions, lessons, and preferences into `MEMORY.md`.
 - **Memory** — Two-layer system: synthesised preferences in `MEMORY.md` (always loaded) and raw session logs in `memory/history/` (on demand).
-- **Cron Tasks** — Scheduled background tasks defined in plain Markdown (`crons/tasks.md`).
+- **Cron Tasks** — Scheduled background tasks defined in `crons/tasks.yaml`; runtime state (last run, last error) tracked in `.miniclaw/task-state.json`.
 
 ---
 
@@ -37,7 +37,11 @@ miniclaw/
 │       └── weekly-YYYY-Www.md    ← Auto-generated weekly summaries
 │
 ├── crons/
-│   └── tasks.md       ← Cron task definitions (schedule + action + last run)
+│   ├── tasks.md       ← Legacy task definitions (superseded by tasks.yaml)
+│   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
+│
+├── .miniclaw/
+│   └── task-state.json  ← Machine-managed runtime state (last run, last error)
 │
 └── scripts/
     └── export-sessions.sh   ← Exports today's Opencode sessions to memory/history/
@@ -76,7 +80,7 @@ Requires `curl` and `jq`. Reads `OPENCODE_HOST`, `OPENCODE_PORT`, and `OPENCODE_
 
 ## Cron Tasks
 
-Defined in `crons/tasks.md`:
+Defined in `crons/tasks.yaml`; runtime state (last run, last error) tracked in `.miniclaw/task-state.json`:
 
 | Task | Schedule | Action |
 |---|---|---|
@@ -84,24 +88,40 @@ Defined in `crons/tasks.md`:
 | `daily-analysis` | 23:15 daily | Analyse export → update `MEMORY.md` |
 | `weekly-review` | 09:00 Monday | Summarise week → `memory/knowledge/weekly-YYYY-Www.md` |
 
-Run the scheduler loop:
+Run the Go scheduler:
 
 ```bash
+# Build once (from the scheduler/ directory)
+cd scheduler && go build -o scheduler .
+
 # Run continuously (poll every 60s)
-node scripts/task-loop.js
+./scheduler/scheduler
 
 # Run one iteration
-node scripts/task-loop.js --once
+./scheduler/scheduler --once
 
 # Test due-task matching without side effects
-node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
+./scheduler/scheduler --once --dry-run --at 2026-03-07T23:15:00Z
+
+# Or use go run directly (no build step needed)
+go run ./scheduler --once --dry-run --at 2026-03-07T23:15:00Z
 ```
+
+All flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--once` | false | Run a single iteration and exit |
+| `--dry-run` | false | Print due tasks without executing them or writing state |
+| `--poll-seconds N` | 60 | Polling interval in seconds |
+| `--model provider/model` | `zen/minimax2.5-free` | OpenCode model for `opencode` tasks |
+| `--at ISO_TIME` | _(now)_ | Simulate a specific time; implies `--once` |
 
 Task compilation model:
 
 - Preferred: `zen/minimax2.5-free`
 - Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
-- Override manually: `OPENCODE_TASK_MODEL=provider/model`
+- Override: `OPENCODE_TASK_MODEL=provider/model` or `--model provider/model`
 
 ---
 
@@ -154,5 +174,5 @@ The fastest way to try MiniClaw is a GitHub Codespace — a cloud VM with everyt
 ## Roadmap
 
 - [ ] Implement session chat loop (CLI)
-- [x] Cron task runner (shell or Node.js)
+- [x] Cron task runner (Go scheduler)
 - [ ] Web UI (stretch goal)

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// DEPRECATED: This JavaScript scheduler has been superseded by the Go scheduler
+// in scheduler/main.go.  Use `go run ./scheduler` (or the compiled binary) instead.
+// This file is kept temporarily for reference and will be removed in a future commit.
 
 const fs = require("fs");
 const path = require("path");
