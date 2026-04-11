@@ -1,6 +1,9 @@
 # Environment — never commit secrets
 .env
 
+# Node.js dependencies
+node_modules/
+
 # Generated daily session export files (optional: track them if you want history in git)
 # memory/history/*.md
 

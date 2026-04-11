@@ -1,0 +1,24 @@
+{
+  "name": "miniclaw",
+  "version": "1.0.0",
+  "description": "A simple Markdown-first AI assistant integrating with Opencode.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vii33/MiniClaw.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/vii33/MiniClaw/issues"
+  },
+  "homepage": "https://github.com/vii33/MiniClaw#readme",
+  "dependencies": {
+    "js-yaml": "^4.1.1"
+  }
+}
