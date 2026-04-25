@@ -109,7 +109,7 @@ Task compilation model:
 
 ## Further Documentation
 
-- [`docs/tasks-memory-architecture.md`](docs/tasks-memory-architecture.md) for task storage, task creation, scheduler behavior, memory layers, prompt locations, and architecture notes.
+- [`docs/tasks-memory-architecture.md`](docs/tasks-memory-architecture.md) for task storage, task creation, scheduler behavior, webserver-vs-DB trade-offs, Mermaid diagrams, memory layers, prompt locations, and architecture notes.
 
 ---
 
