@@ -105,6 +105,11 @@ Task compilation model:
 - Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
 - Override manually: `OPENCODE_TASK_MODEL=provider/model`
 
+Current implementation note:
+
+- the scheduler that exists today is `scripts/task-loop.js`
+- a Go rewrite is listed in `implementation-backlog.md`, but is not implemented in this repo yet
+
 ---
 
 ## Further Documentation

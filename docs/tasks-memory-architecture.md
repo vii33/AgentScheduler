@@ -13,7 +13,8 @@ This document covers both sides of MiniClaw:
 | How can I create new tasks? | Add a new section to `crons/tasks.md` with `Schedule`, `Action`, and `Last run`. |
 | How do I know when a task last succeeded? | Check that task's `- **Last run:**` value in `crons/tasks.md`. |
 | What was the outcome of a task? | Success updates `Last run`; failure appends or updates `Last error`; artifacts are the files the task changes. |
-| What does the cron scheduler do? | `scripts/task-loop.js` polls for due tasks, compiles each task's `Action`, runs it, and updates task metadata. |
+| What does the cron scheduler do? | Today, `scripts/task-loop.js` polls for due tasks, compiles each task's `Action`, runs it, and updates task metadata. |
+| Is the scheduler already written in Go? | No. The active implementation in this repo is still `scripts/task-loop.js`; a Go rewrite is only listed as future backlog work. |
 | Why does MiniClaw use the Opencode web server? | It uses Opencode's supported HTTP interface instead of coupling MiniClaw to an internal database schema. |
 | Why do daily and weekly memory exist? | Daily history keeps raw transcripts. Weekly notes keep higher-level summaries without loading every daily file. |
 | Where are the prompts for memory compression tasks? | The task instructions live in `crons/tasks.md`; the generic compile prompt lives in `scripts/task-loop.js`; `scheduler/tasks.yaml` contains prompts but is currently unused. |
@@ -169,7 +170,13 @@ To inspect what a task produced, check the expected output file named in the tas
 
 ### 6. Scheduler architecture
 
-The scheduler implementation is `scripts/task-loop.js`.
+The active scheduler implementation in this repository is `scripts/task-loop.js`.
+
+Important clarification:
+
+- there is **not** a Go scheduler checked into this repo today
+- `implementation-backlog.md` lists a future item to rewrite the task loop in Go
+- so any current runtime behavior described here refers to the JavaScript implementation
 
 At a high level it does this:
 
@@ -297,16 +304,19 @@ So there is a generic execution prompt in code, but not a dedicated file for eac
 
 #### C. `scheduler/tasks.yaml`
 
-This file contains prompt-like text:
+This file contains per-task `description` and `prompt` entries for:
 
 - `daily-export`
 - `daily-analysis`
 - `weekly-review`
 
+Its apparent purpose is to be a cleaner external config file for task prompt metadata, instead of keeping everything in Markdown or embedding the generic compiler prompt in code.
+
 But the current codebase does **not** reference `scheduler/tasks.yaml`.
 
 For developers, that means:
 
+- it is currently a placeholder or draft for a future configuration shape
 - it is not the active source of truth right now
 - editing it will not change scheduler behavior unless the code is updated to load it
 
@@ -370,7 +380,7 @@ Current state:
 
 - behavior is partly in `crons/tasks.md`
 - the compile prompt is embedded in `scripts/task-loop.js`
-- `scheduler/tasks.yaml` looks like prompt config, but is unused
+- `scheduler/tasks.yaml` looks like a future home for prompt metadata, but is unused today
 
 Why improve it:
 
