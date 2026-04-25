@@ -97,7 +97,7 @@ tasks:
 Important detail:
 
 - `crons/tasks.yaml` is the active source of truth for task definitions
-- `crons/tasks.md` still exists in `main`, but it is legacy documentation and no longer drives the scheduler
+- `crons/tasks.md` still exists on `main`, but it is legacy documentation and no longer drives the scheduler
 
 ### 2. How to create a new task
 

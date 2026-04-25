@@ -8,7 +8,7 @@ A simple, Markdown-first AI assistant that integrates with [Opencode](https://op
 
 ## What It Does
 
-- **Chatting** — Sends and receives messages through Opencode's local webserver (`opencode serve`).
+- **Chatting** — Sends and receives messages through Opencode's local web server (`opencode serve`).
 - **Session Export** — Fetches today's Opencode sessions nightly and writes them to `memory/history/YYYY-MM-DD.md`.
 - **Analysis** — Reads each daily export and synthesises key decisions, lessons, and preferences into `MEMORY.md`.
 - **Memory** — Two-layer system: synthesised preferences in `MEMORY.md` (always loaded) and raw session logs in `memory/history/` (on demand).
