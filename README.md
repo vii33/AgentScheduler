@@ -91,20 +91,23 @@ Defined in `crons/tasks.yaml`; runtime state (last run, last error) tracked in `
 Run the Go scheduler:
 
 ```bash
-# Build once (from the scheduler/ directory)
-cd scheduler && go build -o scheduler .
+# Enter the scheduler directory once
+cd scheduler
+
+# Build the binary
+go build -o scheduler .
 
 # Run continuously (poll every 60s)
-./scheduler/scheduler
+./scheduler
 
 # Run one iteration
-./scheduler/scheduler --once
+./scheduler --once
 
 # Test due-task matching without side effects
-./scheduler/scheduler --once --dry-run --at 2026-03-07T23:15:00Z
+./scheduler --once --dry-run --at 2026-03-07T23:15:00Z
 
-# Or use go run directly (no build step needed)
-go run ./scheduler --once --dry-run --at 2026-03-07T23:15:00Z
+# Or skip the build step with go run
+go run . --once --dry-run --at 2026-03-07T23:15:00Z
 ```
 
 All flags:

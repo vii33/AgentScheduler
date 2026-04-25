@@ -125,6 +125,10 @@ func parseArgs() config {
 	cfg.pollSeconds = *pollSeconds
 	cfg.model = *model
 
+	if cfg.pollSeconds <= 0 {
+		log.Fatalf("[scheduler] --poll-seconds must be > 0, got %d", cfg.pollSeconds)
+	}
+
 	if *atStr != "" {
 		t, err := time.Parse(time.RFC3339, *atStr)
 		if err != nil {
@@ -355,10 +359,6 @@ func executeTask(task Task, model, repoRoot string) error {
 	}
 }
 
-func nowStr() string {
-	return time.Now().UTC().Format(time.RFC3339)
-}
-
 func strPtr(s string) *string { return &s }
 
 func truncate(s string, n int) string {
@@ -383,9 +383,9 @@ func runIteration(cfg config, tasksFile, stateFile string) {
 		return
 	}
 
-	now := time.Now().UTC()
+	now := time.Now()
 	if cfg.at != nil {
-		now = cfg.at.UTC()
+		now = cfg.at.In(time.Local)
 	}
 
 	var due []Task
@@ -423,24 +423,28 @@ func runIteration(cfg config, tasksFile, stateFile string) {
 			continue
 		}
 
-		startTS := nowStr()
+		startTS := now.UTC().Format(time.RFC3339)
+
+		if state[task.ID] == nil {
+			state[task.ID] = &TaskState{}
+		}
+		state[task.ID].Running = true
+		if !cfg.dryRun {
+			if err := saveState(stateFile, state); err != nil {
+				log.Printf("[scheduler] failed to save state: %v", err)
+			}
+		}
+
 		if err := executeTask(task, cfg.model, cfg.repoRoot); err != nil {
 			msg := truncate(strings.ReplaceAll(err.Error(), "\n", " "), 200)
 			log.Printf("[scheduler] failed %s: %s", task.ID, msg)
 
-			if state[task.ID] == nil {
-				state[task.ID] = &TaskState{}
-			}
 			state[task.ID].LastRun = strPtr(startTS)
-			state[task.ID].LastError = strPtr(fmt.Sprintf("%s — %s", nowStr(), msg))
+			state[task.ID].LastError = strPtr(fmt.Sprintf("%s — %s", startTS, msg))
 			state[task.ID].Running = false
 		} else {
-			ts := nowStr()
-			if state[task.ID] == nil {
-				state[task.ID] = &TaskState{}
-			}
-			state[task.ID].LastRun = strPtr(ts)
-			state[task.ID].LastSuccess = strPtr(ts)
+			state[task.ID].LastRun = strPtr(startTS)
+			state[task.ID].LastSuccess = strPtr(startTS)
 			state[task.ID].LastError = nil
 			state[task.ID].Running = false
 			log.Printf("[scheduler] completed: %s", task.ID)
