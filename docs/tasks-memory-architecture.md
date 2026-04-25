@@ -3,21 +3,22 @@
 This document covers both sides of MiniClaw:
 
 - **User guide:** how to add and inspect tasks, and where task output appears.
-- **Developer guide:** how the scheduler works, how memory is layered, where prompts live, and what should be improved.
+- **Developer guide:** how the scheduler works today, where prompts live, and what should be improved.
 
 ## Quick answer map
 
 | Question | Short answer |
 |---|---|
-| How are tasks stored individually? | As individual `## task-name` sections inside `crons/tasks.md`, not as separate files. |
-| How can I create new tasks? | Add a new section to `crons/tasks.md` with `Schedule`, `Action`, and `Last run`. |
-| How do I know when a task last succeeded? | Check that task's `- **Last run:**` value in `crons/tasks.md`. |
-| What was the outcome of a task? | Success updates `Last run`; failure appends or updates `Last error`; artifacts are the files the task changes. |
-| What does the cron scheduler do? | Today, `scripts/task-loop.js` polls for due tasks, compiles each task's `Action`, runs it, and updates task metadata. |
+| How are tasks stored individually? | As entries in the top-level `tasks:` array inside `crons/tasks.yaml`, not as separate files. |
+| How can I create new tasks? | Add a new YAML object to `crons/tasks.yaml` with `id`, `enabled`, `schedule`, `kind`, and either `command` or `instruction`. |
+| How do I know when a task last succeeded? | Check that task's `last_run` field in `.miniclaw/task-state.json`. |
+| What was the outcome of a task? | Success updates `last_run` and clears `last_error`; failure updates `last_error`; artifacts are the files the task changes. |
+| What does the cron scheduler do? | `scripts/task-loop.js` reads `crons/tasks.yaml`, checks `.miniclaw/task-state.json`, runs due tasks, and writes updated runtime state back to disk. |
 | Is the scheduler already written in Go? | No. The active implementation in this repo is still `scripts/task-loop.js`; a Go rewrite is only listed as future backlog work. |
+| What is `crons/tasks.yaml` for? | It is the active source of truth for task definitions, schedules, and Opencode instructions or shell commands. |
 | Why does MiniClaw use the Opencode web server? | It uses Opencode's supported HTTP interface instead of coupling MiniClaw to an internal database schema. |
 | Why do daily and weekly memory exist? | Daily history keeps raw transcripts. Weekly notes keep higher-level summaries without loading every daily file. |
-| Where are the prompts for memory compression tasks? | The task instructions live in `crons/tasks.md`; the generic compile prompt lives in `scripts/task-loop.js`; `scheduler/tasks.yaml` contains prompts but is currently unused. |
+| Where are the prompts for memory compression tasks? | In the `instruction` fields of `crons/tasks.yaml` for `kind: opencode` tasks. |
 | How do I prevent memory pollution? | Keep `MEMORY.md` short, move long notes to `memory/knowledge/`, strike outdated facts instead of silently changing them, and keep raw history in `memory/history/`. |
 
 ## Diagrams
@@ -28,8 +29,8 @@ This document covers both sides of MiniClaw:
 flowchart LR
     User[User / Operator]
     Scheduler[scripts/task-loop.js]
-    Tasks[crons/tasks.md\nTask definitions + Last run/error]
-    Compiler[Opencode task compiler\ncompileTaskWithLLM]
+    Tasks[crons/tasks.yaml\nTask definitions]
+    State[.miniclaw/task-state.json\nlast_run + last_error]
     Server[Opencode HTTP server]
     Export[scripts/export-sessions.sh]
     History[memory/history/YYYY-MM-DD.md]
@@ -38,74 +39,86 @@ flowchart LR
 
     User --> Scheduler
     Scheduler --> Tasks
-    Scheduler --> Compiler
-    Compiler --> Server
+    Scheduler --> State
+    Scheduler --> Server
     Scheduler --> Export
     Export --> Server
     Export --> History
     Scheduler --> Memory
     Scheduler --> Weekly
-    Scheduler --> Tasks
+    Scheduler --> State
 ```
 
 ### Scheduler and memory flow
 
 ```mermaid
 flowchart TD
-    A[Scheduler tick] --> B[Read crons/tasks.md]
-    B --> C[Parse task sections]
-    C --> D{Task due now?}
-    D -- No --> E[Skip]
-    D -- Yes --> F{Already ran this minute?}
-    F -- Yes --> E
-    F -- No --> G[Compile Action via Opencode]
-    G --> H{shell or opencode task?}
-    H --> I[Execute task]
-    I --> J{Success?}
-    J -- Yes --> K[Update Last run]
-    J -- No --> L[Update Last error]
-    K --> M{Task output}
-    M --> N[memory/history/YYYY-MM-DD.md]
-    M --> O[MEMORY.md]
-    M --> P[memory/knowledge/weekly-YYYY-Www.md]
+    A[Scheduler tick] --> B[Read crons/tasks.yaml]
+    B --> C[Validate enabled tasks]
+    C --> D[Read .miniclaw/task-state.json]
+    D --> E{Task due now?}
+    E -- No --> F[Skip]
+    E -- Yes --> G{Already ran this minute?}
+    G -- Yes --> F
+    G -- No --> H{kind}
+    H -- shell --> I[Run allowed shell command]
+    H -- opencode --> J[Run opencode instruction]
+    I --> K{Success?}
+    J --> K
+    K -- Yes --> L[Update last_run and clear last_error]
+    K -- No --> M[Update last_error]
+    L --> N{Task output}
+    N --> O[memory/history/YYYY-MM-DD.md]
+    N --> P[MEMORY.md]
+    N --> Q[memory/knowledge/weekly-YYYY-Www.md]
+    L --> R[Write .miniclaw/task-state.json]
+    M --> R
 ```
 
 ## User guide
 
 ### 1. Where tasks live
 
-Current task definitions live in one file:
+Current task definitions live in:
 
-- `crons/tasks.md`
+- `crons/tasks.yaml`
 
-Each task is stored as its own Markdown section. Example:
+Each task is stored as one YAML object inside the top-level `tasks:` array. Example:
 
-```md
-## daily-export
-- **Schedule:** `0 23 * * *`
-- **Action:** Run `scripts/export-sessions.sh` to fetch all of today's Opencode sessions.
-- **Last run:** 2026-03-07T23:34:49.822Z
+```yaml
+tasks:
+  - id: daily-export
+    enabled: true
+    schedule: "0 23 * * *"
+    kind: shell
+    command: "./scripts/export-sessions.sh"
 ```
 
-So the project has **individually defined tasks**, but they are grouped into one Markdown document rather than one file per task.
+Important detail:
+
+- `crons/tasks.yaml` is the active source of truth for task definitions
+- `crons/tasks.md` still exists in `main`, but it is legacy documentation and no longer drives the scheduler
 
 ### 2. How to create a new task
 
-Add another section to `crons/tasks.md` using the same shape:
+Add another entry to `crons/tasks.yaml` using the same shape:
 
-```md
-## my-task
-- **Schedule:** `30 8 * * 1-5`
-- **Action:** Describe the job in plain English, including which files it should read or write.
-- **Last run:** _(never)_
+```yaml
+  - id: my-task
+    enabled: true
+    schedule: "30 8 * * 1-5"
+    kind: opencode
+    instruction: |
+      Describe exactly what the task should read, write, or summarize.
 ```
 
 Notes:
 
-- `Schedule` uses standard 5-field cron syntax: `minute hour day-of-month month day-of-week`.
-- `Action` should be explicit about inputs, outputs, and file paths.
-- `Last run` starts as `_(never)_` until the task succeeds.
-- You do **not** need to add code for every new task, but tasks are more reliable when their action is specific and deterministic.
+- `schedule` uses standard 5-field cron syntax: `minute hour day-of-month month day-of-week`
+- `kind` must be either `shell` or `opencode`
+- `shell` tasks use a `command` field
+- `opencode` tasks use an `instruction` field
+- disabled tasks can stay in the file with `enabled: false`
 
 ### 3. How to run the scheduler
 
@@ -125,15 +138,26 @@ node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
 
 ### 4. How to know when a task last ran successfully
 
-Look at the task block in `crons/tasks.md`:
+Look at the task entry in:
 
-- `- **Last run:** <timestamp>` means the task completed successfully at that time.
-- `- **Last run:** _(never)_` means there is no recorded successful execution yet.
+- `.miniclaw/task-state.json`
+
+Example:
+
+```json
+{
+  "daily-export": {
+    "last_run": "2026-03-07T23:34:49.822Z",
+    "last_error": null
+  }
+}
+```
 
 Important detail:
 
-- A failure **does not** clear `Last run`.
-- This means `Last run` is the most recent **successful** run, not merely the most recent attempt.
+- if a task has never succeeded, it may have no entry yet
+- a failure does **not** clear `last_run`
+- `last_run` is therefore the most recent **successful** run, not merely the most recent attempt
 
 ### 5. How to see the outcome of a task
 
@@ -141,18 +165,23 @@ MiniClaw currently tracks outcome in a lightweight way.
 
 #### Status
 
-Inside each task section in `crons/tasks.md`:
+Inside `.miniclaw/task-state.json`:
 
-- success: `Last run` is updated
-- failure: `Last error` is appended or updated
+- success: `last_run` is updated and `last_error` is cleared
+- failure: `last_error` is updated with a timestamped message
 
 Example failure metadata:
 
-```md
-- **Last error:** 2026-04-25T18:00:00.000Z — Shell task failed: ...
+```json
+{
+  "daily-analysis": {
+    "last_run": "2026-03-07T23:15:01.000Z",
+    "last_error": "2026-04-25T18:00:00.000Z — OpenCode task failed: ..."
+  }
+}
 ```
 
-There is no separate task-run database or structured status log yet.
+There is no separate task-run database or structured run log yet.
 
 #### Artifacts
 
@@ -164,7 +193,7 @@ Current built-in examples:
 - `daily-analysis` updates `MEMORY.md` and the `## Summary` section in `memory/history/YYYY-MM-DD.md`
 - `weekly-review` writes `memory/knowledge/weekly-YYYY-Www.md`
 
-To inspect what a task produced, check the expected output file named in the task description and the surrounding architecture docs.
+To inspect what a task produced, check the expected output file named in the task definition and the surrounding architecture docs.
 
 ## Developer guide
 
@@ -180,22 +209,24 @@ Important clarification:
 
 At a high level it does this:
 
-1. Read `crons/tasks.md`
-2. Split the file into `## ...` task sections
-3. Parse each task's `Schedule`, `Action`, `Last run`, and optional `Last error`
-4. Find tasks whose cron expression matches the current minute
-5. Skip any task that already ran in that exact minute slot
-6. Compile the task `Action` into executable work using Opencode
-7. Execute the compiled task
-8. Update `Last run` on success, or `Last error` on failure
-9. Write the updated metadata back to `crons/tasks.md`
+1. Read `crons/tasks.yaml`
+2. Parse the top-level `tasks:` array
+3. Validate each enabled task's `id`, `schedule`, `kind`, and `command` or `instruction`
+4. Read `.miniclaw/task-state.json`
+5. Find tasks whose cron expression matches the current minute
+6. Skip any task that already ran in that exact minute slot
+7. Execute the task directly as either `shell` or `opencode`
+8. Update `last_run` on success, or `last_error` on failure
+9. Write the updated state back to `.miniclaw/task-state.json`
 
 Key implementation details:
 
-- Due-task matching is handled by `cronMatches(...)`.
-- Duplicate same-minute runs are blocked by `alreadyRanThisSlot(...)`.
-- Metadata rewriting is handled by `updateTaskMetadata(...)`.
-- The scheduler is poll-based, not OS-cron based. By default it loops every 60 seconds.
+- task parsing is handled by `readTasks()` and `validateTask(...)`
+- runtime state is handled by `readState()` and `writeState(...)`
+- due-task matching is handled by `cronMatches(...)`
+- duplicate same-minute runs are blocked by `alreadyRanThisSlot(...)`
+- shell tasks are restricted by `shellCommandAllowed(...)` and metacharacter checks
+- the scheduler is poll-based, not OS-cron based. By default it loops every 60 seconds
 
 ### 7. What the cron scheduler actually does
 
@@ -203,10 +234,10 @@ Key implementation details:
 
 It is responsible for:
 
-- deciding which tasks are due now
-- translating human-readable task actions into executable instructions
-- executing either shell commands or Opencode reasoning tasks
-- recording success or failure back into `crons/tasks.md`
+- deciding which enabled tasks are due now
+- executing `kind: shell` tasks directly
+- executing `kind: opencode` tasks by sending their instruction text to Opencode
+- recording success or failure into `.miniclaw/task-state.json`
 
 It is **not** currently responsible for:
 
@@ -284,41 +315,32 @@ Why it exists:
 
 There are three places worth knowing about.
 
-#### A. Task instructions in `crons/tasks.md`
+#### A. Task instructions in `crons/tasks.yaml`
 
-The current source of truth for what `daily-analysis` and `weekly-review` should do is their `Action` text in `crons/tasks.md`.
+The current source of truth for what `daily-analysis` and `weekly-review` should do is their `instruction` text in `crons/tasks.yaml`.
 
-That means the memory-compression behavior is currently described as task prose, not as versioned prompt files.
+That means the memory-compression behavior is now defined in YAML task config, not in Markdown task prose.
 
-#### B. Generic compiler prompt in `scripts/task-loop.js`
+#### B. Execution logic in `scripts/task-loop.js`
 
-The scheduler wraps each task with a generic prompt in `compileTaskWithLLM(...)`.
+The scheduler no longer compiles task prose into another format first.
 
-That prompt tells Opencode to convert the task action into JSON of this shape:
+Instead:
 
-```json
-{"type":"opencode"|"shell","payload":"...","reason":"..."}
-```
+- `kind: shell` tasks execute the configured `command`
+- `kind: opencode` tasks send the configured `instruction` directly to `opencode run`
 
-So there is a generic execution prompt in code, but not a dedicated file for each memory task.
+So the generic execution logic lives in code, but the task-specific prompt text lives in `crons/tasks.yaml`.
 
-#### C. `scheduler/tasks.yaml`
+#### C. `crons/tasks.md`
 
-This file contains per-task `description` and `prompt` entries for:
-
-- `daily-export`
-- `daily-analysis`
-- `weekly-review`
-
-Its apparent purpose is to be a cleaner external config file for task prompt metadata, instead of keeping everything in Markdown or embedding the generic compiler prompt in code.
-
-But the current codebase does **not** reference `scheduler/tasks.yaml`.
+This file still exists on `main`, but it is legacy task documentation rather than active scheduler config.
 
 For developers, that means:
 
-- it is currently a placeholder or draft for a future configuration shape
-- it is not the active source of truth right now
-- editing it will not change scheduler behavior unless the code is updated to load it
+- it is not the active source of truth now
+- editing it will not change scheduler behavior
+- task definitions and prompts should be updated in `crons/tasks.yaml` instead
 
 ### 10. How to keep memory from getting polluted over time
 
@@ -363,36 +385,35 @@ These are the highest-value improvements suggested by the current implementation
 
 Current state:
 
-- all tasks live in `crons/tasks.md`
+- all tasks live in one YAML file: `crons/tasks.yaml`
 
 Why improve it:
 
 - clearer ownership
 - simpler diffs
-- easier per-task metadata and prompts
-- easier testing and tooling
+- easier review of large instructions
+- easier per-task testing and tooling
 
-A future shape could be something like `crons/tasks/*.md` or `crons/tasks/*.yaml`.
+A future shape could be something like `crons/tasks/*.yaml`.
 
-### 2. Separate prompts from task metadata
+### 2. Separate long prompts from task metadata
 
 Current state:
 
-- behavior is partly in `crons/tasks.md`
-- the compile prompt is embedded in `scripts/task-loop.js`
-- `scheduler/tasks.yaml` looks like a future home for prompt metadata, but is unused today
+- schedules, kinds, and Opencode instructions all live together in `crons/tasks.yaml`
+- runtime state already lives separately in `.miniclaw/task-state.json`
 
 Why improve it:
 
 - makes prompt changes explicit and reviewable
-- avoids confusion about the active source of truth
+- keeps task config shorter
 - makes memory-compression prompts easier to test
 
 ### 3. Add structured run history
 
 Current state:
 
-- only `Last run` and optional `Last error` are stored
+- only `last_run` and optional `last_error` are stored
 
 Why improve it:
 
@@ -400,7 +421,7 @@ Why improve it:
 - clearer success/failure history
 - artifact discovery becomes trivial
 
-A simple approach would be a Markdown or JSONL run log per task.
+A simple approach would be a JSONL run log per task.
 
 ### 4. Add memory hygiene automation
 
@@ -425,19 +446,20 @@ Examples:
 The backlog already points at the main issues:
 
 - single-instance locking
-- tests for cron parsing and metadata updates
-- safer handling of oversized or invalid LLM compiler output
+- tests for cron parsing and due-task detection
+- safe handling for invalid state or task config
 - better operational logging and metrics
 
 ## File reference
 
 | Purpose | File |
 |---|---|
-| Task definitions and run metadata | `crons/tasks.md` |
+| Active task definitions | `crons/tasks.yaml` |
+| Legacy task documentation | `crons/tasks.md` |
+| Runtime task state | `.miniclaw/task-state.json` |
 | Scheduler implementation | `scripts/task-loop.js` |
 | Session export script | `scripts/export-sessions.sh` |
 | Durable synthesised memory | `MEMORY.md` |
 | Daily raw history | `memory/history/YYYY-MM-DD.md` |
 | Weekly or topical long-form notes | `memory/knowledge/` |
-| Current, unused prompt-like task config | `scheduler/tasks.yaml` |
 | Hardening and architecture follow-ups | `implementation-backlog.md` |
