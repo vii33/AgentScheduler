@@ -7,11 +7,14 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const yaml = require("js-yaml");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
-const TASKS_FILE = path.join(REPO_ROOT, "crons", "tasks.md");
+const TASKS_FILE = path.join(REPO_ROOT, "crons", "tasks.yaml");
+const STATE_FILE = path.join(REPO_ROOT, ".miniclaw", "task-state.json");
 const DEFAULT_MODEL = process.env.OPENCODE_TASK_MODEL || "zen/minimax2.5-free";
 const DEFAULT_POLL_SECONDS = Number(process.env.TASK_LOOP_POLL_SECONDS || 60);
+const DRY_RUN_INSTRUCTION_PREVIEW_LENGTH = 80;
 
 function parseArgs(argv) {
   const args = {
@@ -65,68 +68,61 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/task-loop.js [options]\n\nOptions:\n  --once                 Run one scheduler iteration and exit\n  --dry-run              Do not execute tasks or modify files\n  --poll-seconds N       Loop interval in seconds (default: ${DEFAULT_POLL_SECONDS})\n  --model provider/model OpenCode model for task compilation\n  --at ISO_TIME          Simulate time for one iteration (testing)\n  -h, --help             Show help`);
+  console.log(`Usage: node scripts/task-loop.js [options]\n\nOptions:\n  --once                 Run one scheduler iteration and exit\n  --dry-run              Do not execute tasks or modify files\n  --poll-seconds N       Loop interval in seconds (default: ${DEFAULT_POLL_SECONDS})\n  --model provider/model OpenCode model for task execution\n  --at ISO_TIME          Simulate time for one iteration (testing)\n  -h, --help             Show help`);
 }
 
-function readTasksFile() {
+const SHELL_METACHARACTERS = /[;&|`$><\n\r]/;
+
+function readTasks() {
   if (!fs.existsSync(TASKS_FILE)) {
     throw new Error(`Tasks file not found: ${TASKS_FILE}`);
   }
-  return fs.readFileSync(TASKS_FILE, "utf8");
+  const content = fs.readFileSync(TASKS_FILE, "utf8");
+  const parsed = yaml.load(content);
+  if (!parsed || !Array.isArray(parsed.tasks)) {
+    throw new Error(`Invalid tasks file: expected a top-level 'tasks' array`);
+  }
+  const tasks = parsed.tasks.filter((t) => t && t.enabled !== false);
+  tasks.forEach((task, i) => validateTask(task, i));
+  return tasks;
 }
 
-function splitTaskSections(content) {
-  const sections = [];
-  const regex = /^##\s+(.+)$/gm;
-  let match;
-  const starts = [];
-  while ((match = regex.exec(content)) !== null) {
-    starts.push({
-      title: match[1].trim(),
-      index: match.index,
-    });
+function validateTask(task, index) {
+  if (!task.id || typeof task.id !== "string") {
+    throw new Error(`Task at index ${index} is missing a valid 'id' field`);
   }
-
-  for (let i = 0; i < starts.length; i++) {
-    const start = starts[i].index;
-    const end = i + 1 < starts.length ? starts[i + 1].index : content.length;
-    sections.push({
-      title: starts[i].title,
-      start,
-      end,
-      text: content.slice(start, end),
-    });
+  if (!task.schedule || typeof task.schedule !== "string") {
+    throw new Error(`Task '${task.id}' is missing a valid 'schedule' field`);
   }
-
-  return sections;
+  if (task.kind !== "shell" && task.kind !== "opencode") {
+    throw new Error(`Task '${task.id}' has invalid kind '${String(task.kind)}': must be 'shell' or 'opencode'`);
+  }
+  if (task.kind === "shell" && !task.command) {
+    throw new Error(`Task '${task.id}' has kind=shell but no 'command' field`);
+  }
+  if (task.kind === "opencode" && !task.instruction) {
+    throw new Error(`Task '${task.id}' has kind=opencode but no 'instruction' field`);
+  }
 }
 
-function parseTaskSection(section) {
-  const scheduleMatch = section.text.match(/\*\*Schedule:\*\*\s*`([^`]+)`/);
-  const actionMatch = section.text.match(/\*\*Action:\*\*\s*([\s\S]*?)\n-\s+\*\*Last run:\*\*/);
-  const lastRunMatch = section.text.match(/-\s+\*\*Last run:\*\*\s*(.+)/);
-
-  if (!scheduleMatch || !actionMatch || !lastRunMatch) {
-    return null;
+function readState() {
+  if (!fs.existsSync(STATE_FILE)) {
+    return {};
   }
-
-  const lastErrorMatch = section.text.match(/-\s+\*\*Last error:\*\*\s*(.+)/);
-
-  return {
-    name: section.title,
-    schedule: scheduleMatch[1].trim(),
-    action: actionMatch[1].trim(),
-    lastRunRaw: lastRunMatch[1].trim(),
-    lastErrorRaw: lastErrorMatch ? lastErrorMatch[1].trim() : null,
-    section,
-  };
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+  } catch (err) {
+    console.warn(`[task-loop] Warning: could not parse state file, starting fresh: ${err.message}`);
+    return {};
+  }
 }
 
-function parseLastRun(raw) {
-  if (!raw || raw.includes("(never)")) return null;
-  const parsed = new Date(raw.replace(/_/g, "").trim());
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
+function writeState(state) {
+  const dir = path.dirname(STATE_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + "\n");
 }
 
 function fieldMatches(expr, value, min, max) {
@@ -184,9 +180,10 @@ function minuteKey(date) {
   return d.toISOString();
 }
 
-function alreadyRanThisSlot(task, now) {
-  const lastRun = parseLastRun(task.lastRunRaw);
-  if (!lastRun) return false;
+function alreadyRanThisSlot(taskState, now) {
+  if (!taskState || !taskState.last_run) return false;
+  const lastRun = new Date(taskState.last_run);
+  if (Number.isNaN(lastRun.getTime())) return false;
   return minuteKey(lastRun) === minuteKey(now);
 }
 
@@ -226,46 +223,6 @@ function resolveModel(preferred) {
   return preferred;
 }
 
-function compileTaskWithLLM(task, model) {
-  const prompt = [
-    "Convert this scheduled task action into an executable task instruction.",
-    "Return ONLY valid JSON with this exact schema:",
-    '{"type":"opencode"|"shell","payload":"...","reason":"..."}',
-    "Rules:",
-    "- Prefer type=opencode for tasks requiring reasoning, summarization, or file edits.",
-    "- Use type=shell only for deterministic script commands.",
-    "- payload must be plain text without markdown fences.",
-    "Task:",
-    `name: ${task.name}`,
-    `schedule: ${task.schedule}`,
-    `action: ${task.action}`,
-    `repo: ${REPO_ROOT}`,
-  ].join("\n");
-
-  const result = runCommand("opencode", ["run", "-m", model, prompt], REPO_ROOT);
-  if (result.code !== 0) {
-    throw new Error(`opencode task compile failed: ${result.stderr || result.stdout}`);
-  }
-
-  const extracted = extractJsonObject(result.stdout);
-  if (!extracted) {
-    throw new Error(`Could not parse JSON from compiler output: ${result.stdout.trim()}`);
-  }
-
-  const parsed = JSON.parse(extracted);
-  if (!parsed || (parsed.type !== "opencode" && parsed.type !== "shell") || typeof parsed.payload !== "string") {
-    throw new Error(`Invalid compiler JSON: ${extracted}`);
-  }
-  return parsed;
-}
-
-function extractJsonObject(text) {
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first < 0 || last < first) return null;
-  return text.slice(first, last + 1).trim();
-}
-
 function shellCommandAllowed(cmd) {
   const normalized = cmd.trim();
   return (
@@ -276,45 +233,39 @@ function shellCommandAllowed(cmd) {
   );
 }
 
-function executeCompiledTask(compiled, model) {
-  if (compiled.type === "shell") {
-    if (!shellCommandAllowed(compiled.payload)) {
-      throw new Error(`Rejected unsafe shell payload: ${compiled.payload}`);
+function executeTask(task, model) {
+  if (task.kind === "shell") {
+    const cmd = task.command;
+    if (!cmd) {
+      throw new Error(`Task '${task.id}' has kind=shell but no command defined`);
     }
-    const result = runCommand("bash", ["-lc", compiled.payload], REPO_ROOT);
+    if (!shellCommandAllowed(cmd)) {
+      throw new Error(`Rejected unsafe shell command: ${cmd}`);
+    }
+    if (SHELL_METACHARACTERS.test(cmd)) {
+      throw new Error(`Rejected shell command containing unsafe metacharacters: ${cmd}`);
+    }
+    const tokens = cmd.trim().split(/\s+/);
+    const result = runCommand(tokens[0], tokens.slice(1), REPO_ROOT);
     if (result.code !== 0) {
       throw new Error(`Shell task failed: ${result.stderr || result.stdout}`);
     }
     return result.stdout.trim();
   }
 
-  const result = runCommand("opencode", ["run", "-m", model, compiled.payload], REPO_ROOT);
-  if (result.code !== 0) {
-    throw new Error(`OpenCode task failed: ${result.stderr || result.stdout}`);
-  }
-  return result.stdout.trim();
-}
-
-function updateTaskMetadata(content, taskName, updates) {
-  const sections = splitTaskSections(content);
-  const target = sections.find((s) => s.title === taskName);
-  if (!target) return content;
-
-  let updatedSection = target.text;
-
-  if (updates.lastRun) {
-    updatedSection = updatedSection.replace(/(-\s+\*\*Last run:\*\*\s*)(.+)/, `$1${updates.lastRun}`);
-  }
-
-  if (updates.lastError) {
-    if (/-\s+\*\*Last error:\*\*/.test(updatedSection)) {
-      updatedSection = updatedSection.replace(/(-\s+\*\*Last error:\*\*\s*)(.+)/, `$1${updates.lastError}`);
-    } else {
-      updatedSection = updatedSection.replace(/(-\s+\*\*Last run:\*\*\s*.+)/, `$1\n- **Last error:** ${updates.lastError}`);
+  if (task.kind === "opencode") {
+    const instruction = task.instruction;
+    if (!instruction) {
+      throw new Error(`Task '${task.id}' has kind=opencode but no instruction defined`);
     }
+    const result = runCommand("opencode", ["run", "-m", model, instruction.trim()], REPO_ROOT);
+    if (result.code !== 0) {
+      throw new Error(`OpenCode task failed: ${result.stderr || result.stdout}`);
+    }
+    return result.stdout.trim();
   }
 
-  return content.slice(0, target.start) + updatedSection + content.slice(target.end);
+  throw new Error(`Task '${task.id}' has unknown kind: ${task.kind}`);
 }
 
 function timestampNow() {
@@ -322,45 +273,51 @@ function timestampNow() {
 }
 
 function runIteration(args) {
-  let content = readTasksFile();
-  const sections = splitTaskSections(content)
-    .map(parseTaskSection)
-    .filter(Boolean);
-
+  const tasks = readTasks();
+  const state = readState();
   const now = args.at || new Date();
-  const due = sections.filter((task) => cronMatches(task.schedule, now) && !alreadyRanThisSlot(task, now));
+
+  const due = tasks.filter((task) => {
+    if (!task.schedule) return false;
+    const taskState = state[task.id] || {};
+    return cronMatches(task.schedule, now) && !alreadyRanThisSlot(taskState, now);
+  });
 
   if (due.length === 0) {
     console.log(`[task-loop] ${now.toISOString()} no due tasks`);
     return;
   }
 
-  console.log(`[task-loop] ${now.toISOString()} due tasks: ${due.map((d) => d.name).join(", ")}`);
+  console.log(`[task-loop] ${now.toISOString()} due tasks: ${due.map((d) => d.id).join(", ")}`);
+
+  let stateChanged = false;
 
   for (const task of due) {
-    console.log(`[task-loop] running: ${task.name}`);
+    console.log(`[task-loop] running: ${task.id}`);
     if (args.dryRun) {
-      console.log(`[task-loop] dry-run action: ${task.action}`);
+      const detail = task.kind === "shell" ? `command: ${task.command}` : `instruction: ${(task.instruction || "").slice(0, DRY_RUN_INSTRUCTION_PREVIEW_LENGTH).replace(/\n/g, " ")}...`;
+      console.log(`[task-loop] dry-run ${task.id} (${task.kind}) — ${detail}`);
       continue;
     }
 
     try {
-      const compiled = compileTaskWithLLM(task, args.model);
-      console.log(`[task-loop] compiled ${task.name}: ${compiled.type} (${compiled.reason || "no reason"})`);
-      executeCompiledTask(compiled, args.model);
-      content = updateTaskMetadata(content, task.name, {
-        lastRun: timestampNow(),
-      });
+      executeTask(task, args.model);
+      if (!state[task.id]) state[task.id] = {};
+      state[task.id].last_run = timestampNow();
+      state[task.id].last_error = null;
+      stateChanged = true;
     } catch (err) {
       const message = String(err && err.message ? err.message : err).replace(/\s+/g, " ").slice(0, 200);
-      console.error(`[task-loop] failed ${task.name}: ${message}`);
-      content = updateTaskMetadata(content, task.name, {
-        lastError: `${timestampNow()} — ${message}`,
-      });
+      console.error(`[task-loop] failed ${task.id}: ${message}`);
+      if (!state[task.id]) state[task.id] = {};
+      state[task.id].last_error = `${timestampNow()} — ${message}`;
+      stateChanged = true;
     }
   }
 
-  fs.writeFileSync(TASKS_FILE, content);
+  if (stateChanged) {
+    writeState(state);
+  }
 }
 
 function main() {
@@ -378,3 +335,4 @@ function main() {
 }
 
 main();
+

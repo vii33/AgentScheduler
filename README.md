@@ -12,7 +12,7 @@ A simple, Markdown-first AI assistant that integrates with [Opencode](https://op
 - **Session Export** — Fetches today's Opencode sessions nightly and writes them to `memory/history/YYYY-MM-DD.md`.
 - **Analysis** — Reads each daily export and synthesises key decisions, lessons, and preferences into `MEMORY.md`.
 - **Memory** — Two-layer system: synthesised preferences in `MEMORY.md` (always loaded) and raw session logs in `memory/history/` (on demand).
-- **Cron Tasks** — Scheduled background tasks defined in `crons/tasks.yaml`; runtime state (last run, last error) tracked in `.miniclaw/task-state.json`.
+- **Cron Tasks** — Scheduled background tasks defined in `crons/tasks.yaml`. Runtime state (last run, last error) is tracked separately in `.miniclaw/task-state.json`.
 
 ---
 
@@ -37,17 +37,17 @@ miniclaw/
 │       └── weekly-YYYY-Www.md    ← Auto-generated weekly summaries
 │
 ├── crons/
-│   ├── tasks.md       ← Legacy task definitions (superseded by tasks.yaml)
-│   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
+│   ├── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
+│   └── tasks.md       ← Legacy task definitions (deprecated; superseded by tasks.yaml)
 │
 ├── .miniclaw/
-│   └── task-state.json  ← Machine-managed runtime state (last run, last error)
+│   └── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
 │
 └── scripts/
     └── export-sessions.sh   ← Exports today's Opencode sessions to memory/history/
 ```
 
-All state lives in Markdown files — no database, no binary blobs.
+All task configuration lives in `crons/tasks.yaml`. Runtime state is tracked in `.miniclaw/task-state.json` — no database, no binary blobs.
 
 ---
 
@@ -80,13 +80,15 @@ Requires `curl` and `jq`. Reads `OPENCODE_HOST`, `OPENCODE_PORT`, and `OPENCODE_
 
 ## Cron Tasks
 
-Defined in `crons/tasks.yaml`; runtime state (last run, last error) tracked in `.miniclaw/task-state.json`:
+Defined in `crons/tasks.yaml`. Runtime state (last run, last error) is tracked in `.miniclaw/task-state.json`:
 
-| Task | Schedule | Action |
-|---|---|---|
-| `daily-export` | 23:00 daily | Export sessions → `memory/history/YYYY-MM-DD.md` |
-| `daily-analysis` | 23:15 daily | Analyse export → update `MEMORY.md` |
-| `weekly-review` | 09:00 Monday | Summarise week → `memory/knowledge/weekly-YYYY-Www.md` |
+| Task | Schedule | Kind | Action |
+|---|---|---|---|
+| `daily-export` | 23:00 daily | shell | Export sessions → `memory/history/YYYY-MM-DD.md` |
+| `daily-analysis` | 23:15 daily | opencode | Analyse export → update `MEMORY.md` |
+| `weekly-review` | 09:00 Monday | opencode | Summarise week → `memory/knowledge/weekly-YYYY-Www.md` |
+
+Runtime state (last run, last error) is tracked in `.miniclaw/task-state.json` — this file is machine-managed and should not be edited by hand.
 
 Run the Go scheduler:
 
@@ -120,11 +122,13 @@ All flags:
 | `--model provider/model` | `zen/minimax2.5-free` | OpenCode model for `opencode` tasks |
 | `--at ISO_TIME` | _(now)_ | Simulate a specific time; implies `--once` |
 
-Task compilation model:
+Execution model for `kind: opencode` tasks:
 
 - Preferred: `zen/minimax2.5-free`
 - Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
 - Override: `OPENCODE_TASK_MODEL=provider/model` or `--model provider/model`
+
+> **Note:** The model is used only for tasks with `kind: opencode`. Shell tasks run directly.
 
 ---
 

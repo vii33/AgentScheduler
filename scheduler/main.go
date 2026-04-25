@@ -34,16 +34,13 @@ const (
 
 // Task is one entry from crons/tasks.yaml.
 type Task struct {
-	ID             string `yaml:"id"`
-	Enabled        bool   `yaml:"enabled"`
-	Schedule       string `yaml:"schedule"`
-	Kind           string `yaml:"kind"`        // "shell" or "opencode"
-	Command        string `yaml:"command"`     // used when kind=shell
-	Instruction    string `yaml:"instruction"` // used when kind=opencode
-	TimeoutSeconds int    `yaml:"timeout_seconds"`
-	AllowOverlap   bool   `yaml:"allow_overlap"`
-	MaxRetries     int    `yaml:"max_retries"`
-	Description    string `yaml:"description"`
+	ID          string `yaml:"id"`
+	Enabled     bool   `yaml:"enabled"`
+	Schedule    string `yaml:"schedule"`
+	Kind        string `yaml:"kind"`        // "shell" or "opencode"
+	Command     string `yaml:"command"`     // used when kind=shell
+	Instruction string `yaml:"instruction"` // used when kind=opencode
+	Description string `yaml:"description"`
 }
 
 // tasksConfig is the root of crons/tasks.yaml.

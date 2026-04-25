@@ -12,6 +12,7 @@ Implementation backlog for MiniClaw (product/engineering tasks only).
 
 - [ ] Add file locking/single-instance guard for the Go scheduler to prevent duplicate runners.
 - [ ] Add tests for cron parsing and due-task detection in the Go scheduler.
+- [x] Separate task definitions from runtime state: tasks in `crons/tasks.yaml`, mutable state in `.miniclaw/task-state.json`.
 - [ ] Add safe handling for large/invalid LLM outputs during opencode task execution.
 
 ## Configuration and Extensibility

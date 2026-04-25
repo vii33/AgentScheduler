@@ -4,9 +4,6 @@ tasks:
     schedule: "0 23 * * *"
     kind: shell
     command: "./scripts/export-sessions.sh"
-    timeout_seconds: 300
-    allow_overlap: false
-    max_retries: 1
     description: Export today's Opencode sessions to memory/history/YYYY-MM-DD.md
 
   - id: daily-analysis
@@ -18,9 +15,6 @@ tasks:
       Extract key decisions, lessons learned, and user preferences.
       Append them as dated entries to `MEMORY.md` under the correct headings.
       Write a one-paragraph plain-English summary into the `## Summary` section of today's history file.
-    timeout_seconds: 600
-    allow_overlap: false
-    max_retries: 1
     description: Analyse the daily export and update MEMORY.md plus the day summary
 
   - id: weekly-review
@@ -31,7 +25,4 @@ tasks:
       Read the past 7 days of `memory/history/` files.
       Produce a short weekly summary and save it to `memory/knowledge/weekly-YYYY-Www.md`
       (replace YYYY-Www with the ISO week identifier for the current week).
-    timeout_seconds: 600
-    allow_overlap: false
-    max_retries: 1
     description: Produce a weekly summary from the last 7 days of session history

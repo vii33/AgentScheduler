@@ -4,6 +4,9 @@
 # Compiled Go scheduler binary
 scheduler/scheduler
 
+# Node.js dependencies
+node_modules/
+
 # Machine-managed scheduler runtime state (generated on first run)
 .miniclaw/task-state.json
 
