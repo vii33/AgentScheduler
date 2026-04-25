@@ -26,6 +26,8 @@ miniclaw/
 ├── IDENTITY.md        ← Short identity (name, emoji, role)
 ├── USER.md            ← Info about the user (timezone, projects)
 ├── TOOLS.md           ← Opencode server config and file paths
+├── docs/
+│   └── tasks-memory-architecture.md ← User + developer guide for tasks, scheduler, and memory
 │
 ├── memory/
 │   ├── facts.md                  ← Lightweight scratch pad for quick reminders
@@ -102,6 +104,12 @@ Task compilation model:
 - Preferred: `zen/minimax2.5-free`
 - Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
 - Override manually: `OPENCODE_TASK_MODEL=provider/model`
+
+---
+
+## Further Documentation
+
+- [`docs/tasks-memory-architecture.md`](docs/tasks-memory-architecture.md) for task storage, task creation, scheduler behavior, memory layers, prompt locations, and architecture notes.
 
 ---
 
