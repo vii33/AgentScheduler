@@ -103,7 +103,7 @@ node scripts/task-loop.js --once
 node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
 ```
 
-Task compilation model:
+Execution model for `kind: opencode` tasks:
 
 - Preferred: `zen/minimax2.5-free`
 - Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`

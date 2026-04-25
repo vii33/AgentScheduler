@@ -4,8 +4,6 @@ tasks:
     schedule: "0 23 * * *"
     kind: shell
     command: "./scripts/export-sessions.sh"
-    timeout_seconds: 300
-    allow_overlap: false
 
   - id: daily-analysis
     enabled: true
@@ -16,8 +14,6 @@ tasks:
       Extract key decisions, lessons learned, and user preferences.
       Append them as dated entries to MEMORY.md under the correct headings.
       Write a one-paragraph plain-English summary into the ## Summary section of today's history file.
-    timeout_seconds: 600
-    allow_overlap: false
 
   - id: weekly-review
     enabled: true
@@ -27,5 +23,3 @@ tasks:
       Read the past 7 days of memory/history/ files (files named YYYY-MM-DD.md).
       Produce a short weekly summary covering key decisions, patterns, and lessons.
       Save the summary to memory/knowledge/weekly-YYYY-Www.md (replace YYYY-Www with the current ISO week).
-    timeout_seconds: 600
-    allow_overlap: false

@@ -67,6 +67,8 @@ function printHelp() {
   console.log(`Usage: node scripts/task-loop.js [options]\n\nOptions:\n  --once                 Run one scheduler iteration and exit\n  --dry-run              Do not execute tasks or modify files\n  --poll-seconds N       Loop interval in seconds (default: ${DEFAULT_POLL_SECONDS})\n  --model provider/model OpenCode model for task execution\n  --at ISO_TIME          Simulate time for one iteration (testing)\n  -h, --help             Show help`);
 }
 
+const SHELL_METACHARACTERS = /[;&|`$><\n\r]/;
+
 function readTasks() {
   if (!fs.existsSync(TASKS_FILE)) {
     throw new Error(`Tasks file not found: ${TASKS_FILE}`);
@@ -76,7 +78,27 @@ function readTasks() {
   if (!parsed || !Array.isArray(parsed.tasks)) {
     throw new Error(`Invalid tasks file: expected a top-level 'tasks' array`);
   }
-  return parsed.tasks.filter((t) => t && t.enabled !== false);
+  const tasks = parsed.tasks.filter((t) => t && t.enabled !== false);
+  tasks.forEach((task, i) => validateTask(task, i));
+  return tasks;
+}
+
+function validateTask(task, index) {
+  if (!task.id || typeof task.id !== "string") {
+    throw new Error(`Task at index ${index} is missing a valid 'id' field`);
+  }
+  if (!task.schedule || typeof task.schedule !== "string") {
+    throw new Error(`Task '${task.id}' is missing a valid 'schedule' field`);
+  }
+  if (task.kind !== "shell" && task.kind !== "opencode") {
+    throw new Error(`Task '${task.id}' has invalid kind '${String(task.kind)}': must be 'shell' or 'opencode'`);
+  }
+  if (task.kind === "shell" && !task.command) {
+    throw new Error(`Task '${task.id}' has kind=shell but no 'command' field`);
+  }
+  if (task.kind === "opencode" && !task.instruction) {
+    throw new Error(`Task '${task.id}' has kind=opencode but no 'instruction' field`);
+  }
 }
 
 function readState() {
@@ -216,7 +238,11 @@ function executeTask(task, model) {
     if (!shellCommandAllowed(cmd)) {
       throw new Error(`Rejected unsafe shell command: ${cmd}`);
     }
-    const result = runCommand("bash", ["-lc", cmd], REPO_ROOT);
+    if (SHELL_METACHARACTERS.test(cmd)) {
+      throw new Error(`Rejected shell command containing unsafe metacharacters: ${cmd}`);
+    }
+    const tokens = cmd.trim().split(/\s+/);
+    const result = runCommand(tokens[0], tokens.slice(1), REPO_ROOT);
     if (result.code !== 0) {
       throw new Error(`Shell task failed: ${result.stderr || result.stdout}`);
     }

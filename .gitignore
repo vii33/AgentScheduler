@@ -4,6 +4,9 @@
 # Node.js dependencies
 node_modules/
 
+# Machine-managed scheduler state (created automatically on first run)
+.miniclaw/task-state.json
+
 # Generated daily session export files (optional: track them if you want history in git)
 # memory/history/*.md
 
