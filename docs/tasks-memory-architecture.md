@@ -14,7 +14,7 @@ This document covers both sides of MiniClaw:
 | How do I know when a task last succeeded? | Check that task's `- **Last run:**` value in `crons/tasks.md`. |
 | What was the outcome of a task? | Success updates `Last run`; failure appends or updates `Last error`; artifacts are the files the task changes. |
 | What does the cron scheduler do? | `scripts/task-loop.js` polls for due tasks, compiles each task's `Action`, runs it, and updates task metadata. |
-| Why does MiniClaw use the Opencode webserver? | It uses Opencode's supported HTTP interface instead of coupling MiniClaw to an internal database schema. |
+| Why does MiniClaw use the Opencode web server? | It uses Opencode's supported HTTP interface instead of coupling MiniClaw to an internal database schema. |
 | Why do daily and weekly memory exist? | Daily history keeps raw transcripts. Weekly notes keep higher-level summaries without loading every daily file. |
 | Where are the prompts for memory compression tasks? | The task instructions live in `crons/tasks.md`; the generic compile prompt lives in `scripts/task-loop.js`; `scheduler/tasks.yaml` contains prompts but is currently unused. |
 | How do I prevent memory pollution? | Keep `MEMORY.md` short, move long notes to `memory/knowledge/`, strike outdated facts instead of silently changing them, and keep raw history in `memory/history/`. |
@@ -210,7 +210,7 @@ It is **not** currently responsible for:
 
 Those gaps are also reflected in `implementation-backlog.md`.
 
-### 7a. Why MiniClaw uses the Opencode webserver
+### 7a. Why MiniClaw uses the Opencode web server
 
 MiniClaw currently talks to Opencode through the local HTTP server rather than querying a local database directly.
 
@@ -222,7 +222,7 @@ Why this is the current design:
 - MiniClaw does not need to know where Opencode stores data on disk
 - MiniClaw is less exposed to schema changes across Opencode versions
 
-Could MiniClaw read a local DB instead? Possibly, but it is currently disadvised unless you are willing to own the coupling.
+Could MiniClaw read a local DB instead? Possibly, but it is currently discouraged unless you are willing to own the coupling.
 
 Trade-offs of the DB approach:
 
@@ -231,7 +231,7 @@ Trade-offs of the DB approach:
 - more work around locking, migrations, and partial writes
 - no current DB adapter or documented contract in this repo
 
-So the short version is: querying a local DB could work as a future architecture option, but the webserver is the safer integration boundary for this project today.
+So the short version is: querying a local DB could work as a future architecture option, but the web server is the safer integration boundary for this project today.
 
 ### 8. Why daily and weekly memory both exist
 
