@@ -12,8 +12,8 @@ Implementation backlog for MiniClaw (product/engineering tasks only).
 
 - [ ] Add file locking/single-instance guard for `scripts/task-loop.js` to prevent duplicate runners.
 - [ ] Add tests for cron parsing and due-task detection.
-- [x] Separate task definitions from runtime state: tasks in `crons/tasks.yaml`, mutable state in `.miniclaw/task-state.json`.
-- [ ] Add safe handling for large/invalid LLM outputs during task execution.
+- [ ] Add tests for `crons/tasks.yaml` parsing and `.miniclaw/task-state.json` updates.
+- [ ] Add safe handling for large/invalid opencode task outputs.
 
 ## Configuration and Extensibility
 
@@ -33,4 +33,4 @@ Implementation backlog for MiniClaw (product/engineering tasks only).
 
 - [ ] Add a small launcher script/service unit so the loop runs continuously in background.
 - [ ] Add a `--max-tasks` limit or locking mechanism to avoid overlap if multiple loop instances start.
-- [ ] Add tests for cron parsing and task-state updates.
+- [ ] Add tests for cron parsing, YAML task loading, and task-state updates.

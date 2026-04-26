@@ -8,7 +8,7 @@ A simple, Markdown-first AI assistant that integrates with [Opencode](https://op
 
 ## What It Does
 
-- **Chatting** — Sends and receives messages through Opencode's local webserver (`opencode serve`).
+- **Chatting** — Sends and receives messages through Opencode's local web server (`opencode serve`).
 - **Session Export** — Fetches today's Opencode sessions nightly and writes them to `memory/history/YYYY-MM-DD.md`.
 - **Analysis** — Reads each daily export and synthesises key decisions, lessons, and preferences into `MEMORY.md`.
 - **Memory** — Two-layer system: synthesised preferences in `MEMORY.md` (always loaded) and raw session logs in `memory/history/` (on demand).
@@ -26,6 +26,8 @@ miniclaw/
 ├── IDENTITY.md        ← Short identity (name, emoji, role)
 ├── USER.md            ← Info about the user (timezone, projects)
 ├── TOOLS.md           ← Opencode server config and file paths
+├── docs/
+│   └── tasks-memory-architecture.md ← User + developer guide for tasks, scheduler, and memory
 │
 ├── memory/
 │   ├── facts.md                  ← Lightweight scratch pad for quick reminders
@@ -37,14 +39,14 @@ miniclaw/
 │       └── weekly-YYYY-Www.md    ← Auto-generated weekly summaries
 │
 ├── crons/
-│   ├── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
-│   └── tasks.md       ← Legacy task definitions (deprecated; superseded by tasks.yaml)
+│   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
 │
 ├── .miniclaw/
 │   └── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
 │
 └── scripts/
-    └── export-sessions.sh   ← Exports today's Opencode sessions to memory/history/
+    ├── export-sessions.sh   ← Exports today's Opencode sessions to memory/history/
+    └── task-loop.js         ← Polling scheduler that reads tasks.yaml and writes task-state.json
 ```
 
 All task configuration lives in `crons/tasks.yaml`. Runtime state is tracked in `.miniclaw/task-state.json` — no database, no binary blobs.
@@ -103,13 +105,19 @@ node scripts/task-loop.js --once
 node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
 ```
 
-Execution model for `kind: opencode` tasks:
+Task action compilation model:
 
 - Preferred: `zen/minimax2.5-free`
 - Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
 - Override manually: `OPENCODE_TASK_MODEL=provider/model`
 
-> **Note:** The model is used only for tasks with `kind: opencode`. Shell tasks run directly.
+> **Note:** `scripts/task-loop.js` uses the selected model with `opencode run` to compile each task action first. The compiled result may then execute as a shell task, so this is not controlled by a `kind` field in `crons/tasks.yaml`.
+
+---
+
+## Further Documentation
+
+- [`docs/tasks-memory-architecture.md`](docs/tasks-memory-architecture.md) for task storage, task creation, scheduler behavior, runtime state, web server-vs-DB trade-offs, Mermaid diagrams, memory layers, prompt locations, and architecture notes.
 
 ---
 

@@ -64,23 +64,108 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/task-loop.js [options]\n\nOptions:\n  --once                 Run one scheduler iteration and exit\n  --dry-run              Do not execute tasks or modify files\n  --poll-seconds N       Loop interval in seconds (default: ${DEFAULT_POLL_SECONDS})\n  --model provider/model OpenCode model for task execution\n  --at ISO_TIME          Simulate time for one iteration (testing)\n  -h, --help             Show help`);
+  console.log(`Usage: node scripts/task-loop.js [options]\n\nOptions:\n  --once                 Run one scheduler iteration and exit\n  --dry-run              Do not execute tasks or modify files\n  --poll-seconds N       Loop interval in seconds (default: ${DEFAULT_POLL_SECONDS})\n  --model provider/model OpenCode model for opencode tasks\n  --at ISO_TIME          Simulate time for one iteration (testing)\n  -h, --help             Show help`);
 }
-
-const SHELL_METACHARACTERS = /[;&|`$><\n\r]/;
 
 function readTasks() {
   if (!fs.existsSync(TASKS_FILE)) {
     throw new Error(`Tasks file not found: ${TASKS_FILE}`);
   }
   const content = fs.readFileSync(TASKS_FILE, "utf8");
-  const parsed = yaml.load(content);
-  if (!parsed || !Array.isArray(parsed.tasks)) {
-    throw new Error(`Invalid tasks file: expected a top-level 'tasks' array`);
-  }
-  const tasks = parsed.tasks.filter((t) => t && t.enabled !== false);
-  tasks.forEach((task, i) => validateTask(task, i));
+  const tasks = parseTasksYaml(content).filter((task) => task.enabled !== false);
+  tasks.forEach((task, index) => validateTask(task, index));
   return tasks;
+}
+
+function parseTasksYaml(content) {
+  const lines = content.split(/\r?\n/);
+  const tasks = [];
+  let current = null;
+  let foundTasksKey = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const line = rawLine.replace(/\t/g, "    ");
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    if (trimmed === "tasks:") {
+      foundTasksKey = true;
+      continue;
+    }
+
+    const itemMatch = line.match(/^  -\s+([A-Za-z_][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
+    if (itemMatch) {
+      if (current) {
+        tasks.push(current);
+      }
+      current = {};
+      current[itemMatch[1]] = parseYamlScalar(itemMatch[2]);
+      continue;
+    }
+
+    const fieldMatch = line.match(/^    ([A-Za-z_][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
+    if (fieldMatch) {
+      if (!current) {
+        throw new Error(`Invalid tasks file: field without task entry: ${rawLine}`);
+      }
+      if (fieldMatch[2] === "|" || fieldMatch[2] === ">") {
+        const blockLines = [];
+        const fold = fieldMatch[2] === ">";
+        while (i + 1 < lines.length) {
+          const nextRawLine = lines[i + 1];
+          if (!/^      /.test(nextRawLine) && nextRawLine.trim() !== "") {
+            break;
+          }
+          i += 1;
+          blockLines.push(nextRawLine.trim() === "" ? "" : nextRawLine.slice(6));
+        }
+        current[fieldMatch[1]] = fold
+          ? blockLines.join(" ").replace(/\s+/g, " ").trim()
+          : blockLines.join("\n").trim();
+      } else {
+        current[fieldMatch[1]] = parseYamlScalar(fieldMatch[2]);
+      }
+      continue;
+    }
+
+    throw new Error(`Invalid tasks file: unsupported line: ${rawLine}`);
+  }
+
+  if (current) {
+    tasks.push(current);
+  }
+
+  if (!foundTasksKey || tasks.length === 0) {
+    throw new Error("Invalid tasks file: expected a top-level 'tasks' list");
+  }
+
+  return tasks;
+}
+
+function parseYamlScalar(value) {
+  const trimmed = value.trim();
+
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  if (trimmed === "null") return null;
+
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch (err) {
+      throw new Error(`Invalid quoted YAML string: ${trimmed}`);
+    }
+  }
+
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
 }
 
 function validateTask(task, index) {
@@ -229,19 +314,93 @@ function shellCommandAllowed(cmd) {
   );
 }
 
-function executeTask(task, model) {
+function formatIsoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function formatIsoWeek(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+function applyTaskPlaceholders(text, now) {
+  return text
+    .replaceAll("YYYY-MM-DD", formatIsoDate(now))
+    .replaceAll("YYYY-Www", formatIsoWeek(now));
+}
+
+function splitShellWords(command) {
+  const args = [];
+  let current = "";
+  let quote = null;
+  let escaping = false;
+
+  for (const char of command) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escaping) {
+    throw new Error(`Rejected shell command with trailing escape: ${command}`);
+  }
+
+  if (quote) {
+    throw new Error(`Rejected shell command with unterminated quote: ${command}`);
+  }
+
+  if (current) {
+    args.push(current);
+  }
+
+  return args;
+}
+
+function executeTask(task, model, now) {
   if (task.kind === "shell") {
-    const cmd = task.command;
+    const cmd = applyTaskPlaceholders(task.command, now);
     if (!cmd) {
       throw new Error(`Task '${task.id}' has kind=shell but no command defined`);
     }
     if (!shellCommandAllowed(cmd)) {
       throw new Error(`Rejected unsafe shell command: ${cmd}`);
     }
-    if (SHELL_METACHARACTERS.test(cmd)) {
-      throw new Error(`Rejected shell command containing unsafe metacharacters: ${cmd}`);
-    }
-    const tokens = cmd.trim().split(/\s+/);
+    const tokens = splitShellWords(cmd);
     const result = runCommand(tokens[0], tokens.slice(1), REPO_ROOT);
     if (result.code !== 0) {
       throw new Error(`Shell task failed: ${result.stderr || result.stdout}`);
@@ -250,7 +409,7 @@ function executeTask(task, model) {
   }
 
   if (task.kind === "opencode") {
-    const instruction = task.instruction;
+    const instruction = applyTaskPlaceholders(task.instruction, now);
     if (!instruction) {
       throw new Error(`Task '${task.id}' has kind=opencode but no instruction defined`);
     }
@@ -272,9 +431,7 @@ function runIteration(args) {
   const tasks = readTasks();
   const state = readState();
   const now = args.at || new Date();
-
   const due = tasks.filter((task) => {
-    if (!task.schedule) return false;
     const taskState = state[task.id] || {};
     return cronMatches(task.schedule, now) && !alreadyRanThisSlot(taskState, now);
   });
@@ -284,20 +441,37 @@ function runIteration(args) {
     return;
   }
 
-  console.log(`[task-loop] ${now.toISOString()} due tasks: ${due.map((d) => d.id).join(", ")}`);
+  console.log(`[task-loop] ${now.toISOString()} due tasks: ${due.map((task) => task.id).join(", ")}`);
+
+  let resolvedModel = null;
+  function getModel() {
+    if (resolvedModel === null) {
+      resolvedModel = resolveModel(args.model);
+    }
+    return resolvedModel;
+  }
 
   let stateChanged = false;
 
   for (const task of due) {
     console.log(`[task-loop] running: ${task.id}`);
     if (args.dryRun) {
-      const detail = task.kind === "shell" ? `command: ${task.command}` : `instruction: ${(task.instruction || "").slice(0, DRY_RUN_INSTRUCTION_PREVIEW_LENGTH).replace(/\n/g, " ")}...`;
+      const renderedText = task.kind === "shell"
+        ? applyTaskPlaceholders(task.command || "", now)
+        : applyTaskPlaceholders(task.instruction || "", now);
+      const detail = task.kind === "shell"
+        ? `command: ${renderedText}`
+        : (() => {
+            const preview = renderedText.slice(0, DRY_RUN_INSTRUCTION_PREVIEW_LENGTH).replace(/\n/g, " ");
+            const suffix = renderedText.length > DRY_RUN_INSTRUCTION_PREVIEW_LENGTH ? "..." : "";
+            return `instruction: ${preview}${suffix}`;
+          })();
       console.log(`[task-loop] dry-run ${task.id} (${task.kind}) — ${detail}`);
       continue;
     }
 
     try {
-      executeTask(task, args.model);
+      executeTask(task, task.kind === "opencode" ? getModel() : args.model, now);
       if (!state[task.id]) state[task.id] = {};
       state[task.id].last_run = timestampNow();
       state[task.id].last_error = null;
@@ -318,7 +492,6 @@ function runIteration(args) {
 
 function main() {
   const args = parseArgs(process.argv);
-  args.model = resolveModel(args.model);
 
   if (args.once) {
     runIteration(args);
