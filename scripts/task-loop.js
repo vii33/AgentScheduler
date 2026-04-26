@@ -154,7 +154,11 @@ function parseYamlScalar(value) {
   if (trimmed === "null") return null;
 
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return JSON.parse(trimmed);
+    try {
+      return JSON.parse(trimmed);
+    } catch (err) {
+      throw new Error(`Invalid quoted YAML string: ${trimmed}`);
+    }
   }
 
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
@@ -310,6 +314,25 @@ function shellCommandAllowed(cmd) {
   );
 }
 
+function formatIsoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function formatIsoWeek(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+function applyTaskPlaceholders(text, now) {
+  return text
+    .replaceAll("YYYY-MM-DD", formatIsoDate(now))
+    .replaceAll("YYYY-Www", formatIsoWeek(now));
+}
+
 function splitShellWords(command) {
   const args = [];
   let current = "";
@@ -368,9 +391,9 @@ function splitShellWords(command) {
   return args;
 }
 
-function executeTask(task, model) {
+function executeTask(task, model, now) {
   if (task.kind === "shell") {
-    const cmd = task.command;
+    const cmd = applyTaskPlaceholders(task.command, now);
     if (!cmd) {
       throw new Error(`Task '${task.id}' has kind=shell but no command defined`);
     }
@@ -389,7 +412,7 @@ function executeTask(task, model) {
   }
 
   if (task.kind === "opencode") {
-    const instruction = task.instruction;
+    const instruction = applyTaskPlaceholders(task.instruction, now);
     if (!instruction) {
       throw new Error(`Task '${task.id}' has kind=opencode but no instruction defined`);
     }
@@ -430,15 +453,22 @@ function runIteration(args) {
   for (const task of due) {
     console.log(`[task-loop] running: ${task.id}`);
     if (args.dryRun) {
+      const renderedText = task.kind === "shell"
+        ? applyTaskPlaceholders(task.command || "", now)
+        : applyTaskPlaceholders(task.instruction || "", now);
       const detail = task.kind === "shell"
-        ? `command: ${task.command}`
-        : `instruction: ${(task.instruction || "").slice(0, DRY_RUN_INSTRUCTION_PREVIEW_LENGTH).replace(/\n/g, " ")}...`;
+        ? `command: ${renderedText}`
+        : (() => {
+            const preview = renderedText.slice(0, DRY_RUN_INSTRUCTION_PREVIEW_LENGTH).replace(/\n/g, " ");
+            const suffix = renderedText.length > DRY_RUN_INSTRUCTION_PREVIEW_LENGTH ? "..." : "";
+            return `instruction: ${preview}${suffix}`;
+          })();
       console.log(`[task-loop] dry-run ${task.id} (${task.kind}) — ${detail}`);
       continue;
     }
 
     try {
-      executeTask(task, model);
+      executeTask(task, model, now);
       if (!state[task.id]) state[task.id] = {};
       state[task.id].last_run = timestampNow();
       state[task.id].last_error = null;

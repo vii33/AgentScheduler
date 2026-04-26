@@ -118,6 +118,7 @@ Notes:
 - `shell` tasks use a `command` field
 - `opencode` tasks use an `instruction` field
 - disabled tasks can stay in the file with `enabled: false`
+- built-in tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves at run time
 
 ### 3. How to run the scheduler
 
