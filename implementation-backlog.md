@@ -5,8 +5,8 @@ Implementation backlog for MiniClaw (product/engineering tasks only).
 ## Core Features
 
 - [ ] Implement session chat loop (CLI).
-- [ ] Add weekly-review implementation logic (currently only declared in `crons/tasks.yaml`).
-- [ ] Add daily-analysis implementation logic (currently only declared in `crons/tasks.yaml`).
+- [ ] Add weekly-review implementation logic (declared in `crons/tasks.yaml`).
+- [ ] Add daily-analysis implementation logic (declared in `crons/tasks.yaml`).
 
 ## Scheduler Hardening
 

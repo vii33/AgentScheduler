@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const yaml = require("js-yaml");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const TASKS_FILE = path.join(REPO_ROOT, "crons", "tasks.yaml");
@@ -503,3 +504,4 @@ function main() {
 }
 
 main();
+

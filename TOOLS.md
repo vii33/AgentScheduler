@@ -26,6 +26,7 @@ Auth: set `OPENCODE_PASSWORD` (and optionally `OPENCODE_USERNAME`) in `.env`.
 | Synthesised memory | `./MEMORY.md` |
 | Export script | `./scripts/export-sessions.sh` |
 | Cron definitions | `./crons/tasks.yaml` |
+| Scheduler state | `./.miniclaw/task-state.json` |
 
 ## Secrets
 

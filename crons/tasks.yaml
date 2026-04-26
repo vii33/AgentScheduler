@@ -9,10 +9,17 @@ tasks:
     enabled: true
     schedule: "15 23 * * *"
     kind: opencode
-    instruction: "Read today's history file at memory/history/YYYY-MM-DD.md. Extract key decisions, lessons learned, and user preferences. Append them as dated entries to MEMORY.md under the correct headings. Write a one-paragraph plain-English summary into the ## Summary section of that history file."
+    instruction: |
+      Read memory/history/YYYY-MM-DD.md (replace YYYY-MM-DD with today's date).
+      Extract key decisions, lessons learned, and user preferences.
+      Append them as dated entries to MEMORY.md under the correct headings.
+      Write a one-paragraph plain-English summary into the ## Summary section of today's history file.
 
   - id: weekly-review
     enabled: true
     schedule: "0 9 * * 1"
     kind: opencode
-    instruction: "Read the past 7 days of files in memory/history/. Produce a short weekly summary covering key decisions, patterns, and lessons. Save the summary to memory/knowledge/weekly-YYYY-Www.md for the current ISO week."
+    instruction: |
+      Read the past 7 days of memory/history/ files (files named YYYY-MM-DD.md).
+      Produce a short weekly summary covering key decisions, patterns, and lessons.
+      Save the summary to memory/knowledge/weekly-YYYY-Www.md (replace YYYY-Www with the current ISO week).
