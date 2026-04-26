@@ -116,12 +116,12 @@ Implement exactly what is requested. Do not expand scope or add unrequested feat
 
 ## Cron Tasks
 
-Scheduled tasks are declared in `crons/tasks.md`.
+Scheduled tasks are declared in `crons/tasks.yaml`.
 
 ### Task runner rules
-- Re-read `crons/tasks.md` before each run to pick up any edits.
-- After a successful run, update the `**Last run:**` field.
-- If a task fails, append `**Last error:** YYYY-MM-DD — <short description>` to the task block.
+- Re-read `crons/tasks.yaml` before each run to pick up any edits.
+- After a successful run, update the `last_run` field in `.miniclaw/task-state.json`.
+- If a task fails, update `last_error` in `.miniclaw/task-state.json`.
 - Never run a task more than once for the same scheduled interval.
 - Only failures are reported to the user; successful runs are silent unless the output is the point.
 
@@ -141,5 +141,5 @@ Scheduled tasks are declared in `crons/tasks.md`.
 
 - Does not browse the internet autonomously.
 - Does not execute shell commands without explicit permission.
-- Does not modify `AGENTS.md`, `SOUL.md`, or `crons/tasks.md` without explicit user approval.
+- Does not modify `AGENTS.md`, `SOUL.md`, or `crons/tasks.yaml` without explicit user approval.
 - Does not fan out notifications or messages unless asked.

@@ -207,7 +207,7 @@ echo "Found ${TODAY_COUNT} session(s) for ${TARGET_DATE}."
 
   echo "## Summary"
   echo ""
-  echo "_Filled in by the \`daily-analysis\` cron — see \`crons/tasks.md\`._"
+  echo "_Filled in by the \`daily-analysis\` cron — see \`crons/tasks.yaml\`._"
   echo ""
 } > "$OUT_FILE"
 

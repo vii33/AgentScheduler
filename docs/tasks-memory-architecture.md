@@ -97,7 +97,6 @@ tasks:
 Important detail:
 
 - `crons/tasks.yaml` is the active source of truth for task definitions
-- `crons/tasks.md` still exists on `main`, but it is legacy documentation and no longer drives the scheduler
 
 ### 2. How to create a new task
 
@@ -332,15 +331,13 @@ Instead:
 
 So the generic execution logic lives in code, but the task-specific prompt text lives in `crons/tasks.yaml`.
 
-#### C. `crons/tasks.md`
-
-This file still exists on `main`, but it is legacy task documentation rather than active scheduler config.
+#### C. Runtime state in `.miniclaw/task-state.json`
 
 For developers, that means:
 
-- it is not the active source of truth now
-- editing it will not change scheduler behavior
-- task definitions and prompts should be updated in `crons/tasks.yaml` instead
+- task definitions and prompts live in `crons/tasks.yaml`
+- runtime execution metadata lives separately in `.miniclaw/task-state.json`
+- editing the state file changes run metadata, not task behavior
 
 ### 10. How to keep memory from getting polluted over time
 
@@ -455,7 +452,6 @@ The backlog already points at the main issues:
 | Purpose | File |
 |---|---|
 | Active task definitions | `crons/tasks.yaml` |
-| Legacy task documentation | `crons/tasks.md` |
 | Runtime task state | `.miniclaw/task-state.json` |
 | Scheduler implementation | `scripts/task-loop.js` |
 | Session export script | `scripts/export-sessions.sh` |

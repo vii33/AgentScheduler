@@ -39,8 +39,7 @@ miniclaw/
 │       └── weekly-YYYY-Www.md    ← Auto-generated weekly summaries
 │
 ├── crons/
-│   ├── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
-│   └── tasks.md       ← Legacy task definitions (deprecated; superseded by tasks.yaml)
+│   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
 │
 ├── .miniclaw/
 │   └── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
