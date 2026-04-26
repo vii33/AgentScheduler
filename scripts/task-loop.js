@@ -10,7 +10,6 @@ const STATE_FILE = path.join(REPO_ROOT, ".miniclaw", "task-state.json");
 const DEFAULT_MODEL = process.env.OPENCODE_TASK_MODEL || "zen/minimax2.5-free";
 const DEFAULT_POLL_SECONDS = Number(process.env.TASK_LOOP_POLL_SECONDS || 60);
 const DRY_RUN_INSTRUCTION_PREVIEW_LENGTH = 80;
-const SHELL_METACHARACTERS = /[;&|`$><\n\r]/;
 
 function parseArgs(argv) {
   const args = {
@@ -97,7 +96,7 @@ function parseTasksYaml(content) {
       continue;
     }
 
-    const itemMatch = line.match(/^  -\s+([A-Za-z_][\w-]*):\s*(.+?)\s*$/);
+    const itemMatch = line.match(/^  -\s+([A-Za-z_][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
     if (itemMatch) {
       if (current) {
         tasks.push(current);
@@ -107,7 +106,7 @@ function parseTasksYaml(content) {
       continue;
     }
 
-    const fieldMatch = line.match(/^    ([A-Za-z_][\w-]*):\s*(.*?)\s*$/);
+    const fieldMatch = line.match(/^    ([A-Za-z_][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
     if (fieldMatch) {
       if (!current) {
         throw new Error(`Invalid tasks file: field without task entry: ${rawLine}`);
@@ -400,9 +399,6 @@ function executeTask(task, model, now) {
     if (!shellCommandAllowed(cmd)) {
       throw new Error(`Rejected unsafe shell command: ${cmd}`);
     }
-    if (SHELL_METACHARACTERS.test(cmd)) {
-      throw new Error(`Rejected shell command containing unsafe metacharacters: ${cmd}`);
-    }
     const tokens = splitShellWords(cmd);
     const result = runCommand(tokens[0], tokens.slice(1), REPO_ROOT);
     if (result.code !== 0) {
@@ -444,9 +440,15 @@ function runIteration(args) {
     return;
   }
 
-  const model = due.some((task) => task.kind === "opencode") ? resolveModel(args.model) : args.model;
-
   console.log(`[task-loop] ${now.toISOString()} due tasks: ${due.map((task) => task.id).join(", ")}`);
+
+  let resolvedModel = null;
+  function getModel() {
+    if (resolvedModel === null) {
+      resolvedModel = resolveModel(args.model);
+    }
+    return resolvedModel;
+  }
 
   let stateChanged = false;
 
@@ -468,7 +470,7 @@ function runIteration(args) {
     }
 
     try {
-      executeTask(task, model, now);
+      executeTask(task, task.kind === "opencode" ? getModel() : args.model, now);
       if (!state[task.id]) state[task.id] = {};
       state[task.id].last_run = timestampNow();
       state[task.id].last_error = null;
