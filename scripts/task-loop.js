@@ -153,8 +153,12 @@ function parseYamlScalar(value) {
   if (trimmed === "false") return false;
   if (trimmed === "null") return null;
 
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, "\\");
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return JSON.parse(trimmed);
+  }
+
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1);
   }
 
   return trimmed;
@@ -306,6 +310,64 @@ function shellCommandAllowed(cmd) {
   );
 }
 
+function splitShellWords(command) {
+  const args = [];
+  let current = "";
+  let quote = null;
+  let escaping = false;
+
+  for (const char of command) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escaping) {
+    throw new Error(`Rejected shell command with trailing escape: ${command}`);
+  }
+
+  if (quote) {
+    throw new Error(`Rejected shell command with unterminated quote: ${command}`);
+  }
+
+  if (current) {
+    args.push(current);
+  }
+
+  return args;
+}
+
 function executeTask(task, model) {
   if (task.kind === "shell") {
     const cmd = task.command;
@@ -318,7 +380,7 @@ function executeTask(task, model) {
     if (SHELL_METACHARACTERS.test(cmd)) {
       throw new Error(`Rejected shell command containing unsafe metacharacters: ${cmd}`);
     }
-    const tokens = cmd.trim().split(/\s+/);
+    const tokens = splitShellWords(cmd);
     const result = runCommand(tokens[0], tokens.slice(1), REPO_ROOT);
     if (result.code !== 0) {
       throw new Error(`Shell task failed: ${result.stderr || result.stdout}`);
