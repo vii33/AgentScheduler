@@ -2,17 +2,19 @@
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vii33/MiniClaw)
 
-A simple, Markdown-first AI assistant that integrates with [Opencode](https://opencode.ai) via its built-in HTTP server. Inspired by Openclaw, but stripped down to the essentials: a two-layer persistent memory system, daily session export, and scheduled cron tasks — no database required.
+MiniClaw is a Markdown-configured cyclic task runner for Opencode-powered automations. It runs scheduled tasks from `crons/tasks.yaml`, where each task can run either a shell command or an Opencode instruction.
+
+Memory is included as one scheduled workflow: daily export and analysis tasks can archive Opencode sessions and promote useful notes into Markdown memory files. That workflow demonstrates the scheduler, but MiniClaw's product center is the task runner itself: task definitions, scheduler operations, runtime state, observability, and generated artifacts.
 
 ---
 
 ## What It Does
 
-- **Chatting** — Sends and receives messages through Opencode's local web server (`opencode serve`).
-- **Session Export** — Fetches today's Opencode sessions nightly and writes them to `memory/history/YYYY-MM-DD.md`.
-- **Analysis** — Reads each daily export and synthesises key decisions, lessons, and preferences into `MEMORY.md`.
-- **Memory** — Two-layer system: synthesised preferences in `MEMORY.md` (always loaded) and raw session logs in `memory/history/` (on demand).
-- **Cron Tasks** — Scheduled background tasks defined in `crons/tasks.yaml`. Runtime state (last run, last error) is tracked separately in `.miniclaw/task-state.json`.
+- **Scheduled Tasks**: Reads `crons/tasks.yaml` on each scheduler pass and runs due tasks without a database.
+- **Shell Actions**: Executes shell commands for automations such as exports, maintenance, or local scripts.
+- **Opencode Instructions**: Sends task instructions through `opencode run` for model-assisted automations.
+- **Runtime State**: Tracks last run and last error per task in `.miniclaw/task-state.json`.
+- **Memory Workflow**: Provides built-in scheduled examples for session export, daily analysis, and weekly review.
 
 ---
 
@@ -21,7 +23,7 @@ A simple, Markdown-first AI assistant that integrates with [Opencode](https://op
 ```
 miniclaw/
 ├── AGENTS.md          ← Core rules: memory, security, task execution (read this first)
-├── MEMORY.md          ← Synthesised preferences and lessons (always loaded)
+├── MEMORY.md          ← Synthesised preferences and lessons (used by the memory workflow)
 ├── SOUL.md            ← Personality and writing style
 ├── IDENTITY.md        ← Short identity (name, emoji, role)
 ├── USER.md            ← Info about the user (timezone, projects)
@@ -49,48 +51,31 @@ miniclaw/
     └── task-loop.js         ← Polling scheduler that reads tasks.yaml and writes task-state.json
 ```
 
-All task configuration lives in `crons/tasks.yaml`. Runtime state is tracked in `.miniclaw/task-state.json` — no database, no binary blobs.
+All task configuration lives in `crons/tasks.yaml`. Runtime state is tracked in `.miniclaw/task-state.json`: no database, no binary blobs.
 
 ---
 
-## Memory System
-
-Two layers, both plain Markdown:
-
-| Layer | File | When loaded | Purpose |
-|---|---|---|---|
-| **Synthesised** | `MEMORY.md` | Every session | Distilled preferences, decisions, lessons |
-| **Daily raw** | `memory/history/YYYY-MM-DD.md` | On demand / by cron | Full session export for that day |
-
-The `daily-analysis` cron reads the raw export and promotes the important bits up into `MEMORY.md`.
-
----
-
-## Session Export
-
-```bash
-# Export today's sessions manually
-./scripts/export-sessions.sh
-
-# Export a specific date
-./scripts/export-sessions.sh --date 2026-03-07
-```
-
-Requires `curl` and `jq`. Reads `OPENCODE_HOST`, `OPENCODE_PORT`, and `OPENCODE_PASSWORD` from the environment or `.env`.
-
----
-
-## Cron Tasks
+## Task Definitions
 
 Defined in `crons/tasks.yaml`:
 
-| Task | Schedule | Kind | Action |
+| Task | Schedule | Action Type | Action |
 |---|---|---|---|
 | `daily-export` | 23:00 daily | shell | Export sessions → `memory/history/YYYY-MM-DD.md` |
-| `daily-analysis` | 23:15 daily | opencode | Analyse export → update `MEMORY.md` |
-| `weekly-review` | 09:00 Monday | opencode | Summarise week → `memory/knowledge/weekly-YYYY-Www.md` |
+| `daily-analysis` | 23:15 daily | Opencode instruction | Analyse export → update `MEMORY.md` |
+| `weekly-review` | 09:00 Monday | Opencode instruction | Summarise week → `memory/knowledge/weekly-YYYY-Www.md` |
 
-Runtime state (last run, last error) is tracked in `.miniclaw/task-state.json` — this file is machine-managed and should not be edited by hand.
+Opencode instruction model:
+
+- Preferred: `zen/minimax2.5-free`
+- Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
+- Override manually: `OPENCODE_TASK_MODEL=provider/model`
+
+> **Note:** `scripts/task-loop.js` executes `kind: shell` tasks as allowlisted local script commands. It runs `kind: opencode` tasks with `opencode run` and the selected model.
+
+---
+
+## Scheduler Operations
 
 Run the scheduler loop:
 
@@ -105,13 +90,34 @@ node scripts/task-loop.js --once
 node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
 ```
 
-Task action compilation model:
+Runtime state (last run, last error) is tracked in `.miniclaw/task-state.json`. This file is machine-managed and should not be edited by hand.
 
-- Preferred: `zen/minimax2.5-free`
-- Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
-- Override manually: `OPENCODE_TASK_MODEL=provider/model`
+---
 
-> **Note:** `scripts/task-loop.js` uses the selected model with `opencode run` to compile each task action first. The compiled result may then execute as a shell task, so this is not controlled by a `kind` field in `crons/tasks.yaml`.
+## Memory Workflow
+
+Memory is a scheduled workflow built on the same task runner primitives as any other automation.
+
+Two layers, both plain Markdown:
+
+| Layer | File | When loaded | Purpose |
+|---|---|---|---|
+| **Synthesised** | `MEMORY.md` | Every session | Distilled preferences, decisions, lessons |
+| **Daily raw** | `memory/history/YYYY-MM-DD.md` | On demand / by cron | Full session export for that day |
+
+The `daily-export` shell task writes raw session history. The `daily-analysis` Opencode instruction reads the raw export and promotes the important bits up into `MEMORY.md`.
+
+You can still run the export manually:
+
+```bash
+# Export today's sessions manually
+./scripts/export-sessions.sh
+
+# Export a specific date
+./scripts/export-sessions.sh --date 2026-03-07
+```
+
+Requires `curl` and `jq`. Reads `OPENCODE_HOST`, `OPENCODE_PORT`, and `OPENCODE_PASSWORD` from the environment or `.env`.
 
 ---
 
@@ -123,7 +129,8 @@ Task action compilation model:
 
 ## Prerequisites
 
-- [Opencode](https://opencode.ai/docs/cli/) installed and running:
+- [Opencode](https://opencode.ai/docs/cli/) installed and available to the scheduler.
+- For memory export tasks, Opencode's HTTP server must be running:
 
   ```bash
   opencode serve --port 4096
@@ -133,17 +140,20 @@ Task action compilation model:
 
 ## Testing in GitHub Codespaces
 
-The fastest way to try MiniClaw is a GitHub Codespace — a cloud VM with everything pre-installed.
+The fastest way to try MiniClaw is a GitHub Codespace: a cloud VM with everything pre-installed.
 
 1. Click the **Open in Codespaces** badge above (or go to **Code → Codespaces → New codespace**).
 2. The container installs `opencode`, `curl`, and `jq` automatically.
 3. Inside the terminal:
 
    ```bash
-   # Start the Opencode server (needs an API key configured)
+   # Run one scheduler pass without side effects
+   node scripts/task-loop.js --once --dry-run
+
+   # Start the Opencode server if you want to run memory export tasks
    opencode serve --port 4096
 
-   # In a second terminal — export today's sessions
+   # In a second terminal, export today's sessions manually
    ./scripts/export-sessions.sh
 
    # View the result
@@ -152,7 +162,7 @@ The fastest way to try MiniClaw is a GitHub Codespace — a cloud VM with everyt
 
 4. Port `4096` is automatically forwarded, so you can also open `http://localhost:4096/global/health` in the Codespace browser to verify the server is up.
 
-> **Note:** Opencode requires an LLM provider API key. Set it up with `opencode` on first run — it will guide you through provider selection.
+> **Note:** Opencode requires an LLM provider API key. Set it up with `opencode` on first run. It will guide you through provider selection.
 
 ---
 
@@ -169,6 +179,7 @@ The fastest way to try MiniClaw is a GitHub Codespace — a cloud VM with everyt
 
 ## Roadmap
 
-- [ ] Implement session chat loop (CLI)
-- [x] Cron task runner (shell or Node.js)
-- [ ] Web UI (stretch goal)
+- [ ] Add scheduler locking or a single-instance guard.
+- [ ] Add structured scheduler logs and task-level metrics.
+- [ ] Add artifact retention and cleanup controls for generated outputs.
+- [ ] Scheduler dashboard for task status, logs, and artifacts (stretch goal).
