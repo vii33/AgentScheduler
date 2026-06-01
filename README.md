@@ -42,7 +42,8 @@ miniclaw/
 │   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
 │
 ├── .miniclaw/
-│   └── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
+│   ├── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
+│   └── task-loop.lock  ← Continuous scheduler lock with PID and start timestamp
 │
 └── scripts/
     ├── export-sessions.sh   ← Exports today's Opencode sessions to memory/history/
@@ -91,6 +92,8 @@ Defined in `crons/tasks.yaml`:
 | `weekly-review` | 09:00 Monday | opencode | Summarise week → `memory/knowledge/weekly-YYYY-Www.md` |
 
 Runtime state (last run, last error) is tracked in `.miniclaw/task-state.json` — this file is machine-managed and should not be edited by hand.
+
+Continuous scheduler runs also create `.miniclaw/task-loop.lock` before the first poll. The lock stores the scheduler PID and start timestamp, prevents a second live scheduler from starting, and is removed on normal exit. If the recorded PID is no longer live, the next continuous run treats the lock as stale and replaces it. `--once` runs do not acquire the lock.
 
 Run the scheduler loop:
 

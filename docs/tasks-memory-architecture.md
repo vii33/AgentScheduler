@@ -14,6 +14,7 @@ This document covers both sides of MiniClaw:
 | How do I know when a task last succeeded? | Check that task's `last_run` field in `.miniclaw/task-state.json`. |
 | What was the outcome of a task? | Success updates `last_run` and clears `last_error`; failure updates `last_error`; artifacts are the files the task changes. |
 | What does the cron scheduler do? | `scripts/task-loop.js` reads `crons/tasks.yaml`, checks `.miniclaw/task-state.json`, runs due tasks, and writes updated runtime state back to disk. |
+| Can I run two continuous schedulers at once? | No. Continuous mode owns `.miniclaw/task-loop.lock`; a second live scheduler exits instead of starting. |
 | Is the scheduler already written in Go? | No. The active implementation in this repo is still `scripts/task-loop.js`; a Go rewrite is only listed as future backlog work. |
 | What is `crons/tasks.yaml` for? | It is the active source of truth for task definitions, schedules, and Opencode instructions or shell commands. |
 | Why does MiniClaw use the Opencode web server? | It uses Opencode's supported HTTP interface instead of coupling MiniClaw to an internal database schema. |
@@ -31,6 +32,7 @@ flowchart LR
     Scheduler[scripts/task-loop.js]
     Tasks[crons/tasks.yaml\nTask definitions]
     State[.miniclaw/task-state.json\nlast_run + last_error]
+    Lock[.miniclaw/task-loop.lock\ncontinuous-mode owner]
     Server[Opencode HTTP server]
     Export[scripts/export-sessions.sh]
     History[memory/history/YYYY-MM-DD.md]
@@ -38,6 +40,7 @@ flowchart LR
     Weekly[memory/knowledge/weekly-YYYY-Www.md]
 
     User --> Scheduler
+    Scheduler --> Lock
     Scheduler --> Tasks
     Scheduler --> State
     Scheduler --> Server
@@ -53,7 +56,8 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[Scheduler tick] --> B[Read crons/tasks.yaml]
+    A[Continuous scheduler start] --> Z[Acquire .miniclaw/task-loop.lock]
+    Z --> B[Read crons/tasks.yaml]
     B --> C[Validate enabled tasks]
     C --> D[Read .miniclaw/task-state.json]
     D --> E{Task due now?}
@@ -125,6 +129,8 @@ Notes:
 ```bash
 node scripts/task-loop.js
 ```
+
+In continuous mode, the scheduler creates `.miniclaw/task-loop.lock` before entering the poll loop. The lock file contains JSON with `pid` and `started_at`, so a later scheduler can tell whether the recorded owner is still live. If the PID is live, the new scheduler refuses to start. If the PID is gone, the stale lock is removed and replaced. The lock is cleaned up on normal process exit and handled termination signals.
 
 Useful modes:
 
@@ -209,24 +215,27 @@ Important clarification:
 
 At a high level it does this:
 
-1. Read `crons/tasks.yaml`
-2. Parse the top-level `tasks:` array
-3. Validate each enabled task's `id`, `schedule`, `kind`, and `command` or `instruction`
-4. Read `.miniclaw/task-state.json`
-5. Find tasks whose cron expression matches the current minute
-6. Skip any task that already ran in that exact minute slot
-7. Execute the task directly as either `shell` or `opencode`
-8. Update `last_run` on success, or `last_error` on failure
-9. Write the updated state back to `.miniclaw/task-state.json`
+1. In continuous mode, acquire `.miniclaw/task-loop.lock` before the first scheduler iteration
+2. Read `crons/tasks.yaml`
+3. Parse the top-level `tasks:` array
+4. Validate each enabled task's `id`, `schedule`, `kind`, and `command` or `instruction`
+5. Read `.miniclaw/task-state.json`
+6. Find tasks whose cron expression matches the current minute
+7. Skip any task that already ran in that exact minute slot
+8. Execute the task directly as either `shell` or `opencode`
+9. Update `last_run` on success, or `last_error` on failure
+10. Write the updated state back to `.miniclaw/task-state.json`
 
 Key implementation details:
 
 - task parsing is handled by `readTasks()` and `validateTask(...)`
 - runtime state is handled by `readState()` and `writeState(...)`
+- continuous-mode locking is handled by `acquireSchedulerLock()` and `releaseSchedulerLock(...)`
 - due-task matching is handled by `cronMatches(...)`
 - duplicate same-minute runs are blocked by `alreadyRanThisSlot(...)`
 - shell tasks are restricted by `shellCommandAllowed(...)` and metacharacter checks
 - the scheduler is poll-based, not OS-cron based. By default it loops every 60 seconds
+- `--once` mode skips the lock because it runs a single foreground iteration and exits
 
 ### 7. What the cron scheduler actually does
 
@@ -238,12 +247,12 @@ It is responsible for:
 - executing `kind: shell` tasks directly
 - executing `kind: opencode` tasks by sending their instruction text to Opencode
 - recording success or failure into `.miniclaw/task-state.json`
+- preventing two live continuous scheduler loops from running from the same checkout
 
 It is **not** currently responsible for:
 
 - per-run structured logs
 - artifact indexing
-- file locking or single-instance protection
 - rich observability or metrics
 
 Those gaps are also reflected in `implementation-backlog.md`.

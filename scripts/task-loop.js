@@ -7,7 +7,9 @@ const yaml = require("js-yaml");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const TASKS_FILE = path.join(REPO_ROOT, "crons", "tasks.yaml");
-const STATE_FILE = path.join(REPO_ROOT, ".miniclaw", "task-state.json");
+const MINICLAW_DIR = path.join(REPO_ROOT, ".miniclaw");
+const STATE_FILE = path.join(MINICLAW_DIR, "task-state.json");
+const LOCK_FILE = path.join(MINICLAW_DIR, "task-loop.lock");
 const DEFAULT_MODEL = process.env.OPENCODE_TASK_MODEL || "zen/minimax2.5-free";
 const DEFAULT_POLL_SECONDS = Number(process.env.TASK_LOOP_POLL_SECONDS || 60);
 const DRY_RUN_INSTRUCTION_PREVIEW_LENGTH = 80;
@@ -198,11 +200,14 @@ function readState() {
   }
 }
 
-function writeState(state) {
-  const dir = path.dirname(STATE_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+function ensureMiniclawDir() {
+  if (!fs.existsSync(MINICLAW_DIR)) {
+    fs.mkdirSync(MINICLAW_DIR, { recursive: true });
   }
+}
+
+function writeState(state) {
+  ensureMiniclawDir();
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + "\n");
 }
 
@@ -266,6 +271,101 @@ function alreadyRanThisSlot(taskState, now) {
   const lastRun = new Date(taskState.last_run);
   if (Number.isNaN(lastRun.getTime())) return false;
   return minuteKey(lastRun) === minuteKey(now);
+}
+
+function readLock() {
+  try {
+    return JSON.parse(fs.readFileSync(LOCK_FILE, "utf8"));
+  } catch (err) {
+    return null;
+  }
+}
+
+function processIsLive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === "EPERM";
+  }
+}
+
+function describeLock(lock) {
+  if (!lock || !lock.pid) {
+    return "unknown owner";
+  }
+  return `pid=${lock.pid}${lock.started_at ? ` started_at=${lock.started_at}` : ""}`;
+}
+
+function acquireSchedulerLock() {
+  ensureMiniclawDir();
+  const lock = {
+    pid: process.pid,
+    started_at: new Date().toISOString(),
+  };
+  const content = JSON.stringify(lock, null, 2) + "\n";
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(LOCK_FILE, "wx");
+      try {
+        fs.writeFileSync(fd, content);
+      } finally {
+        fs.closeSync(fd);
+      }
+      return lock;
+    } catch (err) {
+      if (!err || err.code !== "EEXIST") {
+        throw err;
+      }
+
+      const existingLock = readLock();
+      if (processIsLive(existingLock && existingLock.pid)) {
+        throw new Error(`Refusing to start: live scheduler already owns ${LOCK_FILE} (${describeLock(existingLock)})`);
+      }
+
+      console.warn(`[task-loop] removing stale lock: ${LOCK_FILE} (${describeLock(existingLock)})`);
+      fs.unlinkSync(LOCK_FILE);
+    }
+  }
+
+  throw new Error(`Could not acquire scheduler lock: ${LOCK_FILE}`);
+}
+
+function releaseSchedulerLock(lock) {
+  const currentLock = readLock();
+  if (!currentLock || currentLock.pid !== lock.pid || currentLock.started_at !== lock.started_at) {
+    return;
+  }
+
+  try {
+    fs.unlinkSync(LOCK_FILE);
+  } catch (err) {
+    if (!err || err.code !== "ENOENT") {
+      console.warn(`[task-loop] Warning: could not remove lock ${LOCK_FILE}: ${err.message}`);
+    }
+  }
+}
+
+function registerLockCleanup(lock) {
+  let released = false;
+  function cleanup() {
+    if (released) return;
+    released = true;
+    releaseSchedulerLock(lock);
+  }
+
+  process.on("exit", cleanup);
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.once(signal, () => {
+      cleanup();
+      process.exit(128 + (signal === "SIGHUP" ? 1 : signal === "SIGINT" ? 2 : 15));
+    });
+  }
 }
 
 function runCommand(command, args, cwd) {
@@ -498,10 +598,18 @@ function main() {
     return;
   }
 
-  console.log(`[task-loop] started poll=${args.pollSeconds}s model=${args.model}`);
+  const lock = acquireSchedulerLock();
+  registerLockCleanup(lock);
+
+  console.log(`[task-loop] started poll=${args.pollSeconds}s model=${args.model} lock=${LOCK_FILE}`);
   runIteration(args);
   setInterval(() => runIteration(args), args.pollSeconds * 1000);
 }
 
-main();
+try {
+  main();
+} catch (err) {
+  console.error(`[task-loop] ${err && err.message ? err.message : err}`);
+  process.exit(1);
+}
 
