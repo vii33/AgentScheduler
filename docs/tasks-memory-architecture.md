@@ -204,7 +204,6 @@ The active scheduler implementation in this repository is `scripts/task-loop.js`
 Important clarification:
 
 - there is **not** a Go scheduler checked into this repo today
-- `implementation-backlog.md` lists a future item to rewrite the task loop in Go
 - so any current runtime behavior described here refers to the JavaScript implementation
 
 At a high level it does this:
@@ -246,7 +245,6 @@ It is **not** currently responsible for:
 - file locking or single-instance protection
 - rich observability or metrics
 
-Those gaps are also reflected in `implementation-backlog.md`.
 
 ### 7a. Why MiniClaw uses the Opencode web server
 
@@ -441,7 +439,7 @@ Examples:
 
 ### 5. Harden the scheduler
 
-The backlog already points at the main issues:
+Scheduler hardening priorities:
 
 - single-instance locking
 - tests for cron parsing and due-task detection
@@ -459,4 +457,3 @@ The backlog already points at the main issues:
 | Durable synthesised memory | `MEMORY.md` |
 | Daily raw history | `memory/history/YYYY-MM-DD.md` |
 | Weekly or topical long-form notes | `memory/knowledge/` |
-| Hardening and architecture follow-ups | `implementation-backlog.md` |
