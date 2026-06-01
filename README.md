@@ -105,13 +105,12 @@ node scripts/task-loop.js --once
 node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
 ```
 
-Task action compilation model:
+Task action execution model:
 
-- Preferred: `zen/minimax2.5-free`
-- Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
-- Override manually: `OPENCODE_TASK_MODEL=provider/model`
-
-> **Note:** `scripts/task-loop.js` uses the selected model with `opencode run` to compile each task action first. The compiled result may then execute as a shell task, so this is not controlled by a `kind` field in `crons/tasks.yaml`.
+- `kind: shell` runs the configured `command` after `scripts/task-loop.js` applies task placeholders, verifies the command against the shell allowlist, and rejects unsafe shell syntax.
+- `kind: opencode` sends the rendered `instruction` to `opencode run`.
+- `OPENCODE_TASK_MODEL` or `--model` selects the model only for `kind: opencode` tasks. Shell tasks do not use this model setting.
+- The preferred Opencode task model is `zen/minimax2.5-free`; when that model is unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
 
 ---
 
