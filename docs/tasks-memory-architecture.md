@@ -83,7 +83,7 @@ Current task definitions live in:
 
 - `crons/tasks.yaml`
 
-Each task is stored as one YAML object inside the top-level `tasks:` array. Example:
+Each task is stored as one standard YAML object inside the top-level `tasks:` array. The scheduler parses this file with `js-yaml`, so normal YAML features such as quoted strings, block scalars, comments, booleans, and arrays are supported before task validation runs. Example:
 
 ```yaml
 tasks:
@@ -97,6 +97,7 @@ tasks:
 Important detail:
 
 - `crons/tasks.yaml` is the active source of truth for task definitions
+- the file uses standard YAML parsed by `js-yaml`; the top-level value must be an object with a `tasks` array
 
 ### 2. How to create a new task
 
@@ -210,8 +211,8 @@ Important clarification:
 At a high level it does this:
 
 1. Read `crons/tasks.yaml`
-2. Parse the top-level `tasks:` array
-3. Validate each enabled task's `id`, `schedule`, `kind`, and `command` or `instruction`
+2. Parse standard YAML with `js-yaml` and require a top-level `tasks` array
+3. Validate each task's object shape, `id`, `enabled`, `schedule`, `kind`, and `command` or `instruction`
 4. Read `.miniclaw/task-state.json`
 5. Find tasks whose cron expression matches the current minute
 6. Skip any task that already ran in that exact minute slot
@@ -221,7 +222,7 @@ At a high level it does this:
 
 Key implementation details:
 
-- task parsing is handled by `readTasks()` and `validateTask(...)`
+- task parsing is handled by `readTasks()` with `js-yaml`; task shape checks are handled by `validateTask(...)`
 - runtime state is handled by `readState()` and `writeState(...)`
 - due-task matching is handled by `cronMatches(...)`
 - duplicate same-minute runs are blocked by `alreadyRanThisSlot(...)`
