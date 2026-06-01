@@ -71,118 +71,46 @@ function readTasks() {
   if (!fs.existsSync(TASKS_FILE)) {
     throw new Error(`Tasks file not found: ${TASKS_FILE}`);
   }
+
   const content = fs.readFileSync(TASKS_FILE, "utf8");
-  const tasks = parseTasksYaml(content).filter((task) => task.enabled !== false);
-  tasks.forEach((task, index) => validateTask(task, index));
-  return tasks;
+  const parsed = yaml.load(content);
+
+  if (!isPlainObject(parsed) || !Array.isArray(parsed.tasks)) {
+    throw new Error("Invalid tasks file: expected a top-level 'tasks' array");
+  }
+
+  parsed.tasks.forEach((task, index) => validateTask(task, index));
+  return parsed.tasks.filter((task) => task.enabled !== false);
 }
 
-function parseTasksYaml(content) {
-  const lines = content.split(/\r?\n/);
-  const tasks = [];
-  let current = null;
-  let foundTasksKey = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const line = rawLine.replace(/\t/g, "    ");
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    if (trimmed === "tasks:") {
-      foundTasksKey = true;
-      continue;
-    }
-
-    const itemMatch = line.match(/^  -\s+([A-Za-z_][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
-    if (itemMatch) {
-      if (current) {
-        tasks.push(current);
-      }
-      current = {};
-      current[itemMatch[1]] = parseYamlScalar(itemMatch[2]);
-      continue;
-    }
-
-    const fieldMatch = line.match(/^    ([A-Za-z_][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
-    if (fieldMatch) {
-      if (!current) {
-        throw new Error(`Invalid tasks file: field without task entry: ${rawLine}`);
-      }
-      if (fieldMatch[2] === "|" || fieldMatch[2] === ">") {
-        const blockLines = [];
-        const fold = fieldMatch[2] === ">";
-        while (i + 1 < lines.length) {
-          const nextRawLine = lines[i + 1];
-          if (!/^      /.test(nextRawLine) && nextRawLine.trim() !== "") {
-            break;
-          }
-          i += 1;
-          blockLines.push(nextRawLine.trim() === "" ? "" : nextRawLine.slice(6));
-        }
-        current[fieldMatch[1]] = fold
-          ? blockLines.join(" ").replace(/\s+/g, " ").trim()
-          : blockLines.join("\n").trim();
-      } else {
-        current[fieldMatch[1]] = parseYamlScalar(fieldMatch[2]);
-      }
-      continue;
-    }
-
-    throw new Error(`Invalid tasks file: unsupported line: ${rawLine}`);
-  }
-
-  if (current) {
-    tasks.push(current);
-  }
-
-  if (!foundTasksKey || tasks.length === 0) {
-    throw new Error("Invalid tasks file: expected a top-level 'tasks' list");
-  }
-
-  return tasks;
-}
-
-function parseYamlScalar(value) {
-  const trimmed = value.trim();
-
-  if (trimmed === "true") return true;
-  if (trimmed === "false") return false;
-  if (trimmed === "null") return null;
-
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    try {
-      return JSON.parse(trimmed);
-    } catch (err) {
-      throw new Error(`Invalid quoted YAML string: ${trimmed}`);
-    }
-  }
-
-  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return trimmed.slice(1, -1);
-  }
-
-  return trimmed;
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function validateTask(task, index) {
-  if (!task.id || typeof task.id !== "string") {
+  if (!isPlainObject(task)) {
+    throw new Error(`Task at index ${index} must be an object`);
+  }
+
+  const taskLabel = typeof task.id === "string" && task.id.trim() ? task.id : `index ${index}`;
+
+  if (typeof task.id !== "string" || !task.id.trim()) {
     throw new Error(`Task at index ${index} is missing a valid 'id' field`);
   }
-  if (!task.schedule || typeof task.schedule !== "string") {
-    throw new Error(`Task '${task.id}' is missing a valid 'schedule' field`);
+  if (task.enabled !== undefined && typeof task.enabled !== "boolean") {
+    throw new Error(`Task '${taskLabel}' has invalid 'enabled' field: must be a boolean when provided`);
+  }
+  if (typeof task.schedule !== "string" || !task.schedule.trim()) {
+    throw new Error(`Task '${taskLabel}' is missing a valid 'schedule' field`);
   }
   if (task.kind !== "shell" && task.kind !== "opencode") {
-    throw new Error(`Task '${task.id}' has invalid kind '${String(task.kind)}': must be 'shell' or 'opencode'`);
+    throw new Error(`Task '${taskLabel}' has invalid kind '${String(task.kind)}': must be 'shell' or 'opencode'`);
   }
-  if (task.kind === "shell" && !task.command) {
-    throw new Error(`Task '${task.id}' has kind=shell but no 'command' field`);
+  if (task.kind === "shell" && (typeof task.command !== "string" || !task.command.trim())) {
+    throw new Error(`Task '${taskLabel}' has kind=shell but no valid 'command' field`);
   }
-  if (task.kind === "opencode" && !task.instruction) {
-    throw new Error(`Task '${task.id}' has kind=opencode but no 'instruction' field`);
+  if (task.kind === "opencode" && (typeof task.instruction !== "string" || !task.instruction.trim())) {
+    throw new Error(`Task '${taskLabel}' has kind=opencode but no valid 'instruction' field`);
   }
 }
 
