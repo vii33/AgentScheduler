@@ -9,13 +9,9 @@ task execution, and operational standards._
 
 Load these files on every session start, in order:
 
-1. `IDENTITY.md` — who you are (always)
-2. `AGENTS.md` — this file (always)
-3. `MEMORY.md` — synthesised preferences (always)
-4. `USER.md` — user context (always)
-5. `TOOLS.md` — environment config (always)
-6. `SOUL.md` — personality (always)
-7. `memory/history/<today>.md` — today's session export if it exists (optional)
+1. `AGENTS.md` — this file (always)
+2. `MEMORY.md` — synthesised preferences (always)
+3. `memory/history/<today>.md` — today's session export if it exists (optional)
 
 ---
 
@@ -86,7 +82,6 @@ Daily session exports give MiniClaw a raw record of what was worked on.
 ## Opencode Integration
 
 MiniClaw communicates with Opencode via its local HTTP server (default: `http://127.0.0.1:4096`).
-See `TOOLS.md` for the full endpoint list.
 
 **Before any API call**, verify the server is healthy:
 ```
@@ -133,7 +128,6 @@ Scheduled tasks are declared in `crons/tasks.yaml`.
 - Use Markdown in responses: lists, code blocks, headers.
 - When editing files, show a diff or brief summary of changes.
 - Ask one clarifying question at a time, not a list.
-- See `SOUL.md` for tone and banned words.
 
 ---
 
@@ -141,5 +135,5 @@ Scheduled tasks are declared in `crons/tasks.yaml`.
 
 - Does not browse the internet autonomously.
 - Does not execute shell commands without explicit permission.
-- Does not modify `AGENTS.md`, `SOUL.md`, or `crons/tasks.yaml` without explicit user approval.
+- Does not modify `AGENTS.md` or `crons/tasks.yaml` without explicit user approval.
 - Does not fan out notifications or messages unless asked.

@@ -20,15 +20,15 @@ A simple, Markdown-first AI assistant that integrates with [Opencode](https://op
 
 ```
 miniclaw/
-├── AGENTS.md          ← Core rules: memory, security, task execution (read this first)
-├── MEMORY.md          ← Synthesised preferences and lessons (always loaded)
-├── SOUL.md            ← Personality and writing style
-├── IDENTITY.md        ← Short identity (name, emoji, role)
-├── USER.md            ← Info about the user (timezone, projects)
-├── TOOLS.md           ← Opencode server config and file paths
+├── README.md          ← Project overview and scheduler usage
+├── .env.example       ← Environment variable template
+├── crons/
+│   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
+├── scripts/
+│   ├── task-loop.js         ← Polling scheduler that reads tasks.yaml and writes task-state.json
+│   └── export-sessions.sh   ← Scheduled memory export helper
 ├── docs/
 │   └── tasks-memory-architecture.md ← User + developer guide for tasks, scheduler, and memory
-│
 ├── memory/
 │   ├── facts.md                  ← Lightweight scratch pad for quick reminders
 │   ├── history/
@@ -37,16 +37,9 @@ miniclaw/
 │   └── knowledge/
 │       ├── TEMPLATE.md           ← Template for free-form notes
 │       └── weekly-YYYY-Www.md    ← Auto-generated weekly summaries
-│
-├── crons/
-│   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
-│
-├── .miniclaw/
-│   └── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
-│
-└── scripts/
-    ├── export-sessions.sh   ← Exports today's Opencode sessions to memory/history/
-    └── task-loop.js         ← Polling scheduler that reads tasks.yaml and writes task-state.json
+├── MEMORY.md          ← Scheduled analysis output with synthesised preferences and lessons
+└── .miniclaw/
+    └── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
 ```
 
 All task configuration lives in `crons/tasks.yaml`. Runtime state is tracked in `.miniclaw/task-state.json` — no database, no binary blobs.
