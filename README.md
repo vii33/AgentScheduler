@@ -42,7 +42,8 @@ miniclaw/
 │       └── weekly-YYYY-Www.md    ← Auto-generated weekly summaries
 ├── MEMORY.md          ← Scheduled analysis output with synthesised preferences and lessons
 └── .miniclaw/
-    └── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
+    ├── task-state.json ← Machine-managed runtime state (last_run, last_error per task)
+    └── task-loop.lock  ← Continuous scheduler lock with PID and start timestamp
 ```
 
 All task configuration lives in `crons/tasks.yaml`. Runtime state is tracked in `.miniclaw/task-state.json`: no database, no binary blobs.
@@ -70,6 +71,8 @@ Opencode instruction model:
 ---
 
 ## Scheduler Operations
+
+Continuous scheduler runs also create `.miniclaw/task-loop.lock` before the first poll. The lock stores the scheduler PID and start timestamp, prevents a second live scheduler from starting, and is removed on normal exit. If the recorded PID is no longer live, the next continuous run treats the lock as stale and replaces it. `--once` runs do not acquire the lock.
 
 Run the scheduler loop:
 
