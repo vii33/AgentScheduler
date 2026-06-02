@@ -16,3 +16,4 @@ Thumbs.db
 *.swp
 *.swo
 .vscode/settings.json
+.miniclaw/task-loop.lock
