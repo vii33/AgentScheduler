@@ -1,7 +1,7 @@
 {
   "name": "miniclaw",
   "version": "1.0.0",
-  "description": "A simple Markdown-first AI assistant integrating with Opencode.",
+  "description": "A Markdown-configured cyclic task runner for Opencode-powered automations.",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
