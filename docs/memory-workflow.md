@@ -102,8 +102,8 @@ The Go scheduler no longer compiles task prose into another format first.
 Instead:
 
 - `kind: shell` tasks run the configured `command` after placeholder rendering, shell allowlist checks, and unsafe shell syntax rejection.
-- `kind: opencode` tasks send the rendered `instruction` to `opencode run`.
-- `OPENCODE_TASK_MODEL` or `--model` selects the model only for `kind: opencode` tasks; shell tasks do not use this model setting.
+- `kind: opencode`, `copilot-cli`, `claude`, `codex`, and `pi-agent` tasks send the rendered `instruction` to the matching local CLI.
+- `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks; task-level `model` and per-agent environment variables select models for other agent kinds.
 
 So the generic execution logic lives in code, but the memory-specific shell commands and Opencode prompt text live in `crons/tasks.yaml`.
 

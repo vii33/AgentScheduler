@@ -58,7 +58,7 @@ flowchart TD
     J -- Yes --> K[Skip duplicate]
     J -- No --> L{kind}
     L -- shell --> M[Run allowed shell command]
-    L -- opencode --> N[Run opencode instruction]
+    L -- opencode --> N[Run agent instruction]
     M --> O{Success?}
     N --> O
     O -- Yes --> P[Mark task_runs row success]
@@ -99,9 +99,9 @@ Important details:
 
 Add another entry to the `tasks:` array in `crons/tasks.yaml`.
 
-#### Opencode task
+#### Agent task
 
-Use `kind: opencode` when the task should ask Opencode to read, write, summarize, or inspect content.
+Use an agent kind when the task should ask a local CLI agent to read, write, summarize, or inspect content. Supported agent kinds are `opencode`, `copilot-cli`, `claude`, `codex`, and `pi-agent`.
 
 ```yaml
   - id: weekday-summary
@@ -111,7 +111,42 @@ Use `kind: opencode` when the task should ask Opencode to read, write, summarize
     kind: opencode
     instruction: |
       Summarize the project status and write the result to docs/status.md.
+
+  - id: codex-review
+    enabled: true
+    schedule: "0 10 * * 1"
+    missed: run-latest
+    kind: codex
+    model: gpt-5.3-codex
+    instruction: |
+      Review the repository for risky changes and write notes to docs/codex-review.md.
+
+  - id: claude-review
+    enabled: true
+    schedule: "30 10 * * 1"
+    missed: run-latest
+    kind: claude
+    instruction: |
+      Review the repository architecture and write notes to docs/claude-review.md.
+
+  - id: copilot-summary
+    enabled: true
+    schedule: "0 11 * * 1"
+    missed: run-latest
+    kind: copilot-cli
+    instruction: |
+      Summarize the repository and write the result to docs/copilot-summary.md.
+
+  - id: pi-audit
+    enabled: true
+    schedule: "30 11 * * 1"
+    missed: run-latest
+    kind: pi-agent
+    instruction: |
+      Audit the repository for maintainability issues and write notes to docs/pi-audit.md.
 ```
+
+Each agent CLI must be installed and authenticated separately. This runner only schedules and launches the local binary; it does not install providers or manage API keys.
 
 #### Shell task
 
@@ -134,9 +169,10 @@ Use `kind: shell` when the task should run an allowlisted local script command.
 | `enabled` | Yes | Set to `true` to run or `false` to keep the task disabled. |
 | `schedule` | Yes | Standard 5-field cron expression: `minute hour day-of-month month day-of-week`. |
 | `missed` | No | Missed-run policy: `run-latest` by default, or `skip` / `catch-up`. |
-| `kind` | Yes | Either `shell` or `opencode`. |
+| `kind` | Yes | One of `shell`, `opencode`, `copilot-cli`, `claude`, `codex`, or `pi-agent`. |
 | `command` | For `shell` | Local command accepted by the scheduler's shell allowlist. |
-| `instruction` | For `opencode` | Prompt text sent to `opencode run` after placeholder rendering. |
+| `instruction` | For agent kinds | Prompt text sent to the configured agent CLI after placeholder rendering. |
+| `model` | No | Optional model override for an agent task; Opencode also supports `OPENCODE_TASK_MODEL` / `--model`. |
 
 #### Missed-run policy
 
@@ -156,7 +192,7 @@ Strong default: use `run-latest`. Catching up every missed task after a week off
 2. Add the task object to `crons/tasks.yaml`.
 3. Pick a 5-field cron `schedule`.
 4. Choose the `missed` policy: usually `run-latest`, `skip` for stale work, or `catch-up` only when every scheduled period matters.
-5. Choose `kind: shell` with `command` or `kind: opencode` with `instruction`.
+5. Choose `kind: shell` with `command`, or an agent kind with `instruction`.
 6. Keep output paths explicit in the command or instruction.
 7. Test due-slot matching with `go run ./cmd/task-loop --once --dry-run --at <ISO timestamp>`.
 8. Run one real scheduler pass only when the expected task slot should be due.
@@ -247,7 +283,8 @@ Important implementation details:
 - Duplicate runs are blocked by the SQLite unique key on `(task_id, scheduled_for)`.
 - Shell tasks are restricted by an allowlist and lightweight quote/escape parsing before execution.
 - `kind: opencode` tasks run `opencode run -m <model> <instruction>`.
-- `OPENCODE_TASK_MODEL` or `--model` selects the model only for `kind: opencode` tasks.
+- `kind: copilot-cli`, `claude`, `codex`, and `pi-agent` tasks run the matching CLI binary in non-interactive mode.
+- `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks; use task-level `model` or per-agent environment variables for other agent kinds.
 - The preferred Opencode task model is `zen/minimax2.5-free`; when unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
 - `--once` mode skips the continuous scheduler lock because it runs a single foreground iteration and exits.
 - `--dry-run` does not execute tasks and does not create or update `miniclaw.db`.

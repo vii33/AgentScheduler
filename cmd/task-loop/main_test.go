@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,5 +128,80 @@ func TestValidateTaskRejectsInvalidMissedPolicy(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid missed policy") {
 		t.Fatalf("expected missed policy error, got %v", err)
+	}
+}
+
+func TestValidateTaskAcceptsAgentKinds(t *testing.T) {
+	for _, kind := range []string{taskKindOpencode, taskKindCopilotCLI, taskKindClaude, taskKindCodex, taskKindPiAgent} {
+		t.Run(kind, func(t *testing.T) {
+			err := validateTask(task{
+				ID:          "agent-task",
+				Enabled:     enabled(true),
+				Schedule:    "0 9 * * *",
+				Missed:      "run-latest",
+				Kind:        kind,
+				Instruction: "Summarize this repository.",
+			}, 0, map[string]bool{})
+			if err != nil {
+				t.Fatalf("expected kind %s to validate, got %v", kind, err)
+			}
+		})
+	}
+}
+
+func TestValidateTaskRejectsAgentTaskWithoutInstruction(t *testing.T) {
+	err := validateTask(task{
+		ID:       "missing-instruction",
+		Enabled:  enabled(true),
+		Schedule: "0 9 * * *",
+		Missed:   "run-latest",
+		Kind:     taskKindCodex,
+	}, 0, map[string]bool{})
+	if err == nil {
+		t.Fatal("expected missing agent instruction to fail validation")
+	}
+	if !strings.Contains(err.Error(), "no valid 'instruction' field") {
+		t.Fatalf("expected instruction validation error, got %v", err)
+	}
+}
+
+func TestAgentAdapterArgs(t *testing.T) {
+	tests := []struct {
+		kind        string
+		instruction string
+		model       string
+		want        []string
+	}{
+		{taskKindCopilotCLI, "explain", "gpt-5.3-codex", []string{"-p", "explain", "-s", "--model", "gpt-5.3-codex"}},
+		{taskKindClaude, "explain", "sonnet", []string{"-p", "--model", "sonnet", "explain"}},
+		{taskKindCodex, "explain", "gpt-5.3-codex", []string{"exec", "--model", "gpt-5.3-codex", "explain"}},
+		{taskKindPiAgent, "explain", "openai/gpt-4o", []string{"--model", "openai/gpt-4o", "-p", "explain"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			adapter := agentAdapters[tt.kind]
+			if got := adapter.args(tt.instruction, tt.model); !slices.Equal(got, tt.want) {
+				t.Fatalf("expected args %#v, got %#v", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestTaskModelPrefersTaskModelThenAgentEnv(t *testing.T) {
+	t.Setenv("CODEX_TASK_MODEL", "from-env")
+	adapter := agentAdapters[taskKindCodex]
+	if got := taskModel(task{Model: "from-task"}, adapter); got != "from-task" {
+		t.Fatalf("expected task model to win, got %q", got)
+	}
+	if got := taskModel(task{}, adapter); got != "from-env" {
+		t.Fatalf("expected model from env, got %q", got)
+	}
+}
+
+func TestShellAllowlistDoesNotAllowAgentBinaries(t *testing.T) {
+	for _, command := range []string{"copilot -p hi", "claude -p hi", "codex exec hi", "pi -p hi"} {
+		if shellCommandAllowed(command) {
+			t.Fatalf("expected shell allowlist to reject %q", command)
+		}
 	}
 }

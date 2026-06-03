@@ -27,6 +27,13 @@ const (
 	fallbackModel                  = "opencode/minimax-m2.5-free"
 	stateKeyLastChecked            = "last_checked_at"
 	dryRunInstructionPreviewLength = 80
+
+	taskKindShell      = "shell"
+	taskKindOpencode   = "opencode"
+	taskKindCopilotCLI = "copilot-cli"
+	taskKindClaude     = "claude"
+	taskKindCodex      = "codex"
+	taskKindPiAgent    = "pi-agent"
 )
 
 type args struct {
@@ -49,6 +56,66 @@ type task struct {
 	Kind        string `yaml:"kind"`
 	Command     string `yaml:"command"`
 	Instruction string `yaml:"instruction"`
+	Model       string `yaml:"model"`
+}
+
+type agentAdapter struct {
+	displayName string
+	binary      string
+	modelEnv    string
+	args        func(instruction string, model string) []string
+}
+
+var agentAdapters = map[string]agentAdapter{
+	taskKindCopilotCLI: {
+		displayName: "Copilot CLI",
+		binary:      "copilot",
+		modelEnv:    "COPILOT_MODEL",
+		args: func(instruction string, model string) []string {
+			args := []string{"-p", instruction, "-s"}
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+			return args
+		},
+	},
+	taskKindClaude: {
+		displayName: "Claude",
+		binary:      "claude",
+		modelEnv:    "CLAUDE_TASK_MODEL",
+		args: func(instruction string, model string) []string {
+			args := []string{"-p"}
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+			return append(args, instruction)
+		},
+	},
+	taskKindCodex: {
+		displayName: "Codex",
+		binary:      "codex",
+		modelEnv:    "CODEX_TASK_MODEL",
+		args: func(instruction string, model string) []string {
+			args := []string{"exec"}
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+			return append(args, instruction)
+		},
+	},
+	taskKindPiAgent: {
+		displayName: "Pi agent",
+		binary:      "pi",
+		modelEnv:    "PI_AGENT_TASK_MODEL",
+		args: func(instruction string, model string) []string {
+			args := []string{}
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+			args = append(args, "-p", instruction)
+			return args
+		},
+	},
 }
 
 type lockFile struct {
@@ -278,16 +345,29 @@ func validateTask(t task, index int, seen map[string]bool) error {
 	if missed != "skip" && missed != "run-latest" && missed != "catch-up" {
 		return fmt.Errorf("task '%s' has invalid missed policy '%s': must be skip, run-latest, or catch-up", label, missed)
 	}
-	if t.Kind != "shell" && t.Kind != "opencode" {
-		return fmt.Errorf("task '%s' has invalid kind '%s': must be 'shell' or 'opencode'", label, t.Kind)
+	if !validTaskKind(t.Kind) {
+		return fmt.Errorf("task '%s' has invalid kind '%s': must be one of %s", label, t.Kind, strings.Join(allowedTaskKinds(), ", "))
 	}
-	if t.Kind == "shell" && strings.TrimSpace(t.Command) == "" {
+	if t.Kind == taskKindShell && strings.TrimSpace(t.Command) == "" {
 		return fmt.Errorf("task '%s' has kind=shell but no valid 'command' field", label)
 	}
-	if t.Kind == "opencode" && strings.TrimSpace(t.Instruction) == "" {
-		return fmt.Errorf("task '%s' has kind=opencode but no valid 'instruction' field", label)
+	if t.Kind != taskKindShell && strings.TrimSpace(t.Instruction) == "" {
+		return fmt.Errorf("task '%s' has kind=%s but no valid 'instruction' field", label, t.Kind)
 	}
 	return nil
+}
+
+func allowedTaskKinds() []string {
+	kinds := []string{taskKindShell, taskKindOpencode, taskKindCopilotCLI, taskKindClaude, taskKindCodex, taskKindPiAgent}
+	return kinds
+}
+
+func validTaskKind(kind string) bool {
+	if kind == taskKindShell || kind == taskKindOpencode {
+		return true
+	}
+	_, ok := agentAdapters[kind]
+	return ok
 }
 
 func parseCron(schedule string) (cronSchedule, error) {
@@ -610,7 +690,7 @@ WHERE id = ?
 func logDryRun(run candidateRun, now time.Time) {
 	renderedText := ""
 	detail := ""
-	if run.task.Kind == "shell" {
+	if run.task.Kind == taskKindShell {
 		renderedText = applyTaskPlaceholders(run.task.Command, run.scheduledFor)
 		detail = fmt.Sprintf("command: %s", renderedText)
 	} else {
@@ -625,7 +705,7 @@ func logDryRun(run candidateRun, now time.Time) {
 }
 
 func executeTask(t task, getModel func() string, scheduledFor time.Time, repoRoot string) error {
-	if t.Kind == "shell" {
+	if t.Kind == taskKindShell {
 		cmd := applyTaskPlaceholders(t.Command, scheduledFor)
 		if strings.TrimSpace(cmd) == "" {
 			return fmt.Errorf("task '%s' has kind=shell but no command defined", t.ID)
@@ -647,19 +727,53 @@ func executeTask(t task, getModel func() string, scheduledFor time.Time, repoRoo
 		return nil
 	}
 
-	if t.Kind == "opencode" {
+	if t.Kind == taskKindOpencode {
 		instruction := strings.TrimSpace(applyTaskPlaceholders(t.Instruction, scheduledFor))
 		if instruction == "" {
 			return fmt.Errorf("task '%s' has kind=opencode but no instruction defined", t.ID)
 		}
-		result := runCommand("opencode", []string{"run", "-m", getModel(), instruction}, repoRoot)
+		model := strings.TrimSpace(t.Model)
+		if model == "" {
+			model = getModel()
+		}
+		result := runCommand("opencode", []string{"run", "-m", model, instruction}, repoRoot)
 		if result.code != 0 {
 			return fmt.Errorf("OpenCode task failed: %s", firstNonEmpty(result.stderr, result.stdout))
 		}
 		return nil
 	}
 
+	if adapter, ok := agentAdapters[t.Kind]; ok {
+		instruction := strings.TrimSpace(applyTaskPlaceholders(t.Instruction, scheduledFor))
+		if instruction == "" {
+			return fmt.Errorf("task '%s' has kind=%s but no instruction defined", t.ID, t.Kind)
+		}
+		return executeAgentTask(adapter, instruction, taskModel(t, adapter), repoRoot)
+	}
+
 	return fmt.Errorf("task '%s' has unknown kind: %s", t.ID, t.Kind)
+}
+
+func taskModel(t task, adapter agentAdapter) string {
+	if strings.TrimSpace(t.Model) != "" {
+		return strings.TrimSpace(t.Model)
+	}
+	if adapter.modelEnv != "" {
+		return strings.TrimSpace(os.Getenv(adapter.modelEnv))
+	}
+	return ""
+}
+
+func executeAgentTask(adapter agentAdapter, instruction string, model string, repoRoot string) error {
+	env := []string{}
+	if adapter.modelEnv != "" && model != "" {
+		env = append(env, adapter.modelEnv+"="+model)
+	}
+	result := runCommandWithEnv(adapter.binary, adapter.args(instruction, model), repoRoot, env)
+	if result.code != 0 {
+		return fmt.Errorf("%s task failed: %s", adapter.displayName, firstNonEmpty(result.stderr, result.stdout))
+	}
+	return nil
 }
 
 type commandResult struct {
@@ -669,9 +783,13 @@ type commandResult struct {
 }
 
 func runCommand(command string, commandArgs []string, cwd string) commandResult {
+	return runCommandWithEnv(command, commandArgs, cwd, nil)
+}
+
+func runCommandWithEnv(command string, commandArgs []string, cwd string, env []string) commandResult {
 	cmd := exec.Command(command, commandArgs...)
 	cmd.Dir = cwd
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), env...)
 	stdout, stderr := strings.Builder{}, strings.Builder{}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -682,6 +800,9 @@ func runCommand(command string, commandArgs []string, cwd string) commandResult 
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
 			code = exitError.ExitCode()
+		}
+		if strings.TrimSpace(stderr.String()) == "" {
+			stderr.WriteString(err.Error())
 		}
 	}
 	return commandResult{code: code, stdout: stdout.String(), stderr: stderr.String()}
