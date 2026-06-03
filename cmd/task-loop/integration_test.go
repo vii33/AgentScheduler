@@ -275,3 +275,49 @@ func TestDryRunDoesNotCreateRuntimeDatabase(t *testing.T) {
 		t.Fatalf("expected dry-run not to execute shell task, stat err=%v", err)
 	}
 }
+
+func TestRunIterationRecordsSuccessfulAgentTask(t *testing.T) {
+	paths := testRepo(t, `tasks:
+  - id: codex-agent
+    enabled: true
+    schedule: "15 23 * * *"
+    missed: run-latest
+    kind: codex
+    model: gpt-5.3-codex
+    instruction: "Summarize YYYY-MM-DD"
+`, nil)
+	binDir := filepath.Join(paths.repoRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeCodex := filepath.Join(binDir, "codex")
+	if err := os.WriteFile(fakeCodex, []byte("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"$@\" > agent.args\nprintf '%s\\n' \"${CODEX_TASK_MODEL:-}\" > agent.model\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	argsContent, err := os.ReadFile(filepath.Join(paths.repoRoot, "agent.args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(argsContent)); got != "exec\n--model\ngpt-5.3-codex\nSummarize 2026-03-07" {
+		t.Fatalf("unexpected agent args: %q", got)
+	}
+	modelContent, err := os.ReadFile(filepath.Join(paths.repoRoot, "agent.model"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(modelContent)); got != "gpt-5.3-codex" {
+		t.Fatalf("expected CODEX_TASK_MODEL to be exported, got %q", got)
+	}
+
+	runs := readRuns(t, paths)
+	if len(runs) != 1 || runs[0].status != "success" {
+		t.Fatalf("expected one successful agent run, got %+v", runs)
+	}
+}

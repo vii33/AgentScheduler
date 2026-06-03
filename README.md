@@ -2,7 +2,7 @@
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vii33/MiniClaw)
 
-MiniClaw is a Markdown-configured Go task runner for Opencode-powered automations. It runs scheduled tasks from `crons/tasks.yaml`, where each task can run either a shell command or an Opencode instruction.
+MiniClaw is a Markdown-configured Go task runner for local automations and CLI-agent workflows. It runs scheduled tasks from `crons/tasks.yaml`, where each task can run either an allowlisted shell command or an instruction through Opencode, Copilot CLI, Claude, Codex, or Pi.
 
 ---
 
@@ -11,7 +11,7 @@ MiniClaw is a Markdown-configured Go task runner for Opencode-powered automation
 - **Scheduled Tasks**: Reads `crons/tasks.yaml` on each scheduler pass and runs due task slots.
 - **Missed-Run Handling**: Uses `skip`, `run-latest`, or `catch-up` policies when the PC was asleep or offline.
 - **Shell Actions**: Executes shell commands for automations such as exports, maintenance, or local scripts.
-- **Opencode Instructions**: Sends task instructions through `opencode run` for model-assisted automations.
+- **Agent Instructions**: Sends task instructions through Opencode, Copilot CLI, Claude, Codex, or Pi for model-assisted automations.
 - **Runtime History**: Tracks task attempts, outcomes, durations, and missed schedule slots in `miniclaw.db`.
 
 ---
@@ -41,15 +41,16 @@ All task configuration lives in `crons/tasks.yaml`. Runtime history is tracked i
 
 ## Task Definitions
 
-Defined in `crons/tasks.yaml`. Each task has an `id`, `enabled` flag, 5-field cron `schedule`, optional missed-run policy, `kind`, and either a shell `command` or an Opencode `instruction`.
+Defined in `crons/tasks.yaml`. Each task has an `id`, `enabled` flag, 5-field cron `schedule`, optional missed-run policy, `kind`, and either a shell `command` or an agent `instruction`. Supported agent kinds are `opencode`, `copilot-cli`, `claude`, `codex`, and `pi-agent`.
 
-Opencode instruction model:
+Agent instruction models:
 
-- Preferred: `zen/minimax2.5-free`
-- Automatic fallback when `zen` is not configured: `opencode/minimax-m2.5-free`
-- Override manually: `OPENCODE_TASK_MODEL=provider/model`
+- `kind: opencode` keeps the existing preferred model: `zen/minimax2.5-free`.
+- Opencode automatically falls back to `opencode/minimax-m2.5-free` when `zen` is not configured and the fallback model is available.
+- Override Opencode manually with `OPENCODE_TASK_MODEL=provider/model`, `--model`, or a task-level `model` field.
+- Override other agent kinds with a task-level `model` field or the matching environment variable: `COPILOT_MODEL`, `CLAUDE_TASK_MODEL`, `CODEX_TASK_MODEL`, or `PI_AGENT_TASK_MODEL`.
 
-> **Note:** `cmd/task-loop` executes `kind: shell` tasks as allowlisted local script commands. It runs `kind: opencode` tasks with `opencode run` and the selected model.
+> **Note:** `cmd/task-loop` executes `kind: shell` tasks as allowlisted local script commands. Agent tasks are direct binary invocations, not arbitrary shell strings. Each CLI must be installed and authenticated separately.
 
 For the task schema, task-creation checklist, and scheduler FAQ, see [`docs/task-scheduler-architecture.md`](docs/task-scheduler-architecture.md).
 
@@ -78,7 +79,8 @@ Task action execution model:
 
 - `kind: shell` runs the configured `command` after `cmd/task-loop` applies task placeholders, verifies the command against the shell allowlist, and rejects unsafe shell syntax.
 - `kind: opencode` sends the rendered `instruction` to `opencode run`.
-- `OPENCODE_TASK_MODEL` or `--model` selects the model only for `kind: opencode` tasks. Shell tasks do not use this model setting.
+- `kind: copilot-cli`, `claude`, `codex`, and `pi-agent` send the rendered `instruction` to the matching local CLI in non-interactive mode.
+- `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks. Use task-level `model` or the per-agent environment variables for other agent kinds.
 - The preferred Opencode task model is `zen/minimax2.5-free`; when that model is unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
 
 ---
@@ -93,7 +95,7 @@ Task action execution model:
 ## Prerequisites
 
 - Go installed for `go run ./cmd/task-loop`.
-- [Opencode](https://opencode.ai/docs/cli/) installed and available to the scheduler.
+- At least one supported agent CLI installed and authenticated for agent tasks: [Opencode](https://opencode.ai/docs/cli/), GitHub Copilot CLI, Claude Code, OpenAI Codex CLI, or Pi.
 - For tasks that use Opencode's HTTP API, the Opencode HTTP server must be running:
 
   ```bash
@@ -133,6 +135,10 @@ The fastest way to try MiniClaw is a GitHub Codespace: a cloud VM with everythin
 | `OPENCODE_PASSWORD` | _(none)_ | Optional HTTP basic-auth password |
 | `OPENCODE_USERNAME` | `opencode` | HTTP basic-auth username |
 | `OPENCODE_TASK_MODEL` | `zen/minimax2.5-free` | Default model for `kind: opencode` tasks |
+| `COPILOT_MODEL` | _(CLI default)_ | Default model for `kind: copilot-cli` tasks |
+| `CLAUDE_TASK_MODEL` | _(CLI default)_ | Default model for `kind: claude` tasks |
+| `CODEX_TASK_MODEL` | _(CLI default)_ | Default model for `kind: codex` tasks |
+| `PI_AGENT_TASK_MODEL` | _(CLI default)_ | Default model for `kind: pi-agent` tasks |
 | `TASK_LOOP_POLL_SECONDS` | `300` | Scheduler polling interval in seconds |
 
 ---
