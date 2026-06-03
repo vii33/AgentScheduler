@@ -9,6 +9,8 @@ Read this at the start of every session._
 ## User Preferences
 <!-- Coding style, tool choices, workflow preferences -->
 <!-- - YYYY-MM-DD: <fact> -->
+- 2026-06-03: User prefers candid, opinionated feedback and is okay with calling out bad ideas directly.
+
 
 ## Project Context
 <!-- Active projects, goals, current focus areas -->

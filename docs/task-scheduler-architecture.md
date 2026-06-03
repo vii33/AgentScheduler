@@ -1,6 +1,6 @@
 # Task and Scheduler Architecture
 
-This document covers MiniClaw's task runner: how tasks are stored, how to create a new task, how the scheduler runs, and how runtime state is recorded.
+This document covers MiniClaw's Go task runner: how tasks are stored, how to create a new task, how missed schedules are handled, and how runtime history is recorded in SQLite.
 
 For the memory workflow built on top of these task primitives, see [`docs/memory-workflow.md`](memory-workflow.md).
 
@@ -9,14 +9,13 @@ For the memory workflow built on top of these task primitives, see [`docs/memory
 | Question | Short answer |
 |---|---|
 | How are tasks stored individually? | As entries in the top-level `tasks:` array inside `crons/tasks.yaml`, not as separate files. |
-| How can I create new tasks? | Add a new YAML object to `crons/tasks.yaml` with `id`, `enabled`, `schedule`, `kind`, and either `command` or `instruction`. |
-| How do I know when a task last succeeded? | Check that task's `last_run` field in `.miniclaw/task-state.json`. |
-| What was the outcome of a task? | Success updates `last_run` and clears `last_error`; failure updates `last_error`; artifacts are the files the task changes. |
-| What does the cron scheduler do? | `scripts/task-loop.js` reads `crons/tasks.yaml`, checks `.miniclaw/task-state.json`, runs due tasks, and writes updated runtime state back to disk. |
-| Can I run two continuous schedulers at once? | No. Continuous mode owns `.miniclaw/task-loop.lock`; a second live scheduler exits instead of starting. |
-| Is the scheduler already written in Go? | No. The active implementation in this repo is still `scripts/task-loop.js`; a Go rewrite is only listed as future backlog work. |
-| What is `crons/tasks.yaml` for? | It is the active source of truth for task definitions, schedules, and Opencode instructions or shell commands. |
-| Why does MiniClaw use the Opencode web server? | It uses Opencode's supported HTTP interface instead of coupling MiniClaw to an internal database schema. |
+| How can I create new tasks? | Add a YAML object to `crons/tasks.yaml` with `id`, `enabled`, `schedule`, optional `missed`, `kind`, and either `command` or `instruction`. |
+| How do I know when a task last succeeded? | Query `miniclaw.db`, specifically the newest `task_runs` row for the task with `status = 'success'`. |
+| What was the outcome of a task? | Every attempt creates or updates a `task_runs` row with `scheduled_for`, `started_at`, `finished_at`, `status`, `duration_ms`, and optional `error`. |
+| What does the cron scheduler do? | `cmd/task-loop` reads `crons/tasks.yaml`, computes due schedule slots since the last scheduler check, records attempts in SQLite, and executes due shell or Opencode work. |
+| Can I run two continuous schedulers at once? | No. Continuous mode owns `task-loop.lock`; a second live scheduler exits instead of starting. |
+| What is the default poll interval? | Five minutes (`300` seconds), configurable with `TASK_LOOP_POLL_SECONDS` or `--poll-seconds`. |
+| What happens after the PC was offline? | The scheduler computes missed `scheduled_for` slots since `scheduler_state.last_checked_at` and applies each task's `missed` policy. |
 
 ## Diagrams
 
@@ -25,46 +24,47 @@ For the memory workflow built on top of these task primitives, see [`docs/memory
 ```mermaid
 flowchart LR
     User[User / Operator]
-    Scheduler[scripts/task-loop.js]
+    Scheduler[cmd/task-loop Go scheduler]
     Tasks[crons/tasks.yaml\nTask definitions]
-    State[.miniclaw/task-state.json\nlast_run + last_error]
-    Lock[.miniclaw/task-loop.lock\ncontinuous-mode owner]
-    Server[Opencode HTTP server]
+    DB[miniclaw.db\ntask_runs + scheduler_state]
+    Lock[task-loop.lock\ncontinuous-mode owner]
+    Server[Opencode CLI]
     Export[scripts/export-sessions.sh]
     Artifact[Task output files]
 
     User --> Scheduler
     Scheduler --> Lock
     Scheduler --> Tasks
-    Scheduler --> State
+    Scheduler --> DB
     Scheduler --> Server
     Scheduler --> Export
-    Export --> Server
+    Export --> Artifact
     Scheduler --> Artifact
-    Scheduler --> State
 ```
 
 ### Scheduler flow
 
 ```mermaid
 flowchart TD
-    A[Continuous scheduler start] --> Z[Acquire .miniclaw/task-loop.lock]
-    Z --> B[Read crons/tasks.yaml]
-    B --> C[Validate enabled tasks]
-    C --> D[Read .miniclaw/task-state.json]
-    D --> E{Task due now?}
-    E -- No --> F[Skip]
-    E -- Yes --> G{Already ran this minute?}
-    G -- Yes --> F
-    G -- No --> H{kind}
-    H -- shell --> I[Run allowed shell command]
-    H -- opencode --> J[Run opencode instruction]
-    I --> K{Success?}
-    J --> K
-    K -- Yes --> L[Update last_run and clear last_error]
-    K -- No --> M[Update last_error]
-    L --> R[Write .miniclaw/task-state.json]
-    M --> R
+    A[Scheduler iteration] --> B[Read crons/tasks.yaml]
+    B --> C[Open miniclaw.db]
+    C --> D[Read scheduler_state.last_checked_at]
+    D --> E[Compute matching schedule slots through now]
+    E --> F[Apply missed policy]
+    F --> G{Any due slots?}
+    G -- No --> H[Update last_checked_at]
+    G -- Yes --> I[Insert task_runs row as running]
+    I --> J{Unique task_id + scheduled_for exists?}
+    J -- Yes --> K[Skip duplicate]
+    J -- No --> L{kind}
+    L -- shell --> M[Run allowed shell command]
+    L -- opencode --> N[Run opencode instruction]
+    M --> O{Success?}
+    N --> O
+    O -- Yes --> P[Mark task_runs row success]
+    O -- No --> Q[Mark task_runs row failed with error]
+    P --> H
+    Q --> H
 ```
 
 ## User guide
@@ -75,7 +75,7 @@ Current task definitions live in:
 
 - `crons/tasks.yaml`
 
-Each task is stored as one standard YAML object inside the top-level `tasks:` array. The scheduler parses this file with `js-yaml`, so normal YAML features such as quoted strings, block scalars, comments, booleans, and arrays are supported before task validation runs.
+Each task is stored as one standard YAML object inside the top-level `tasks:` array. The Go scheduler parses this file with `gopkg.in/yaml.v3`, so normal YAML features such as quoted strings, block scalars, comments, booleans, and arrays are supported before task validation runs.
 
 Example:
 
@@ -84,6 +84,7 @@ tasks:
   - id: daily-export
     enabled: true
     schedule: "0 23 * * *"
+    missed: run-latest
     kind: shell
     command: "./scripts/export-sessions.sh"
 ```
@@ -92,7 +93,7 @@ Important details:
 
 - `crons/tasks.yaml` is the active source of truth for task definitions.
 - The top-level value must be an object with a `tasks` array.
-- Runtime state does not live in `crons/tasks.yaml`; it lives in `.miniclaw/task-state.json`.
+- Runtime execution history does not live in `crons/tasks.yaml`; it lives in `miniclaw.db`.
 
 ### How to create a new task
 
@@ -106,6 +107,7 @@ Use `kind: opencode` when the task should ask Opencode to read, write, summarize
   - id: weekday-summary
     enabled: true
     schedule: "30 8 * * 1-5"
+    missed: run-latest
     kind: opencode
     instruction: |
       Summarize the project status and write the result to docs/status.md.
@@ -119,6 +121,7 @@ Use `kind: shell` when the task should run an allowlisted local script command.
   - id: export-sessions
     enabled: true
     schedule: "0 23 * * *"
+    missed: run-latest
     kind: shell
     command: "./scripts/export-sessions.sh"
 ```
@@ -130,176 +133,124 @@ Use `kind: shell` when the task should run an allowlisted local script command.
 | `id` | Yes | Stable unique task identifier. |
 | `enabled` | Yes | Set to `true` to run or `false` to keep the task disabled. |
 | `schedule` | Yes | Standard 5-field cron expression: `minute hour day-of-month month day-of-week`. |
+| `missed` | No | Missed-run policy: `run-latest` by default, or `skip` / `catch-up`. |
 | `kind` | Yes | Either `shell` or `opencode`. |
 | `command` | For `shell` | Local command accepted by the scheduler's shell allowlist. |
 | `instruction` | For `opencode` | Prompt text sent to `opencode run` after placeholder rendering. |
+
+#### Missed-run policy
+
+The scheduler only wakes every five minutes by default, and the PC may be asleep or offline. It therefore computes schedule slots between `last_checked_at` and `now` instead of checking only whether the current minute matches the cron expression.
+
+| Policy | Behavior | Use when |
+|---|---|---|
+| `run-latest` | Run only the newest missed slot. This is the default. | The task should still happen after downtime, but old duplicate periods are not useful. |
+| `skip` | Run only fresh slots inside the current poll window. Older missed slots are ignored. | Late work would be stale or annoying. |
+| `catch-up` | Run every missed slot in chronological order. | Every period matters, such as backups or accounting exports. |
+
+Strong default: use `run-latest`. Catching up every missed task after a week offline is usually a dumb surprise unless the task is explicitly designed for it.
 
 #### Task creation checklist
 
 1. Choose a unique, lowercase `id`.
 2. Add the task object to `crons/tasks.yaml`.
 3. Pick a 5-field cron `schedule`.
-4. Choose `kind: shell` with `command` or `kind: opencode` with `instruction`.
-5. Keep output paths explicit in the command or instruction.
-6. Test due-task matching with `node scripts/task-loop.js --once --dry-run --at <ISO timestamp>`.
-7. Run one real scheduler pass only when the expected task should be due.
+4. Choose the `missed` policy: usually `run-latest`, `skip` for stale work, or `catch-up` only when every scheduled period matters.
+5. Choose `kind: shell` with `command` or `kind: opencode` with `instruction`.
+6. Keep output paths explicit in the command or instruction.
+7. Test due-slot matching with `go run ./cmd/task-loop --once --dry-run --at <ISO timestamp>`.
+8. Run one real scheduler pass only when the expected task slot should be due.
+9. Inspect recent attempts with `sqlite3 miniclaw.db 'select task_id, scheduled_for, status, error from task_runs order by started_at desc limit 20;'`.
 
-Built-in tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves at run time.
+Built-in tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves against the `scheduled_for` slot at run time.
 
 ### How to run the scheduler
 
 ```bash
-node scripts/task-loop.js
+go run ./cmd/task-loop
 ```
 
-In continuous mode, the scheduler creates `.miniclaw/task-loop.lock` before entering the poll loop. The lock file contains JSON with `pid` and `started_at`, so a later scheduler can tell whether the recorded owner is still live. If the PID is live, the new scheduler refuses to start. If the PID is gone, the stale lock is removed and replaced. The lock is cleaned up on normal process exit and handled termination signals.
+In continuous mode, the scheduler creates `task-loop.lock` before entering the poll loop. The lock file contains JSON with `pid` and `started_at`, so a later scheduler can tell whether the recorded owner is still live. If the PID is live, the new scheduler exits. If the PID is stale, the stale lock is removed and replaced.
 
-Useful modes:
+Useful commands:
 
 ```bash
-# Single scheduler pass
-node scripts/task-loop.js --once
+# Run continuously, polling every five minutes by default
+go run ./cmd/task-loop
 
-# Check what would run without side effects
-node scripts/task-loop.js --once --dry-run --at 2026-03-07T23:15:00Z
+# Run one scheduler iteration
+go run ./cmd/task-loop --once
+
+# Test due-slot matching without executing tasks or writing runtime state
+go run ./cmd/task-loop --once --dry-run --at 2026-03-07T23:15:00Z
+
+# Poll every five minutes explicitly
+go run ./cmd/task-loop --poll-seconds 300
 ```
 
-### How to know when a task last ran successfully
+Runtime history is stored in `miniclaw.db`. This file is machine-managed and should not be edited by hand outside intentional SQLite maintenance.
 
-Look at the task entry in:
+### Runtime database
 
-- `.miniclaw/task-state.json`
+The scheduler initializes these tables automatically:
 
-Example:
+```sql
+CREATE TABLE task_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  scheduled_for TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed', 'skipped')),
+  error TEXT,
+  duration_ms INTEGER,
+  UNIQUE(task_id, scheduled_for)
+);
 
-```json
-{
-  "daily-export": {
-    "last_run": "2026-03-07T23:34:49.822Z",
-    "last_error": null
-  }
-}
+CREATE TABLE scheduler_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 ```
 
-Important details:
+The unique `(task_id, scheduled_for)` constraint is the duplicate-run guard. It is clearer than the old `last_run` field because it records the exact cron occurrence being handled, even if the PC was offline and the task starts late.
 
-- If a task has never succeeded, it may have no entry yet.
-- A failure does **not** clear `last_run`.
-- `last_run` is therefore the most recent **successful** run, not merely the most recent attempt.
+Example query for the last success of a task:
 
-### How to see the outcome of a task
-
-MiniClaw currently tracks outcome in a lightweight way.
-
-Inside `.miniclaw/task-state.json`:
-
-- Success updates `last_run` and clears `last_error`.
-- Failure updates `last_error` with a timestamped message.
-
-Example failure metadata:
-
-```json
-{
-  "daily-analysis": {
-    "last_run": "2026-03-07T23:15:01.000Z",
-    "last_error": "2026-04-25T18:00:00.000Z — OpenCode task failed: ..."
-  }
-}
+```sql
+SELECT scheduled_for, finished_at
+FROM task_runs
+WHERE task_id = 'daily-analysis' AND status = 'success'
+ORDER BY scheduled_for DESC
+LIMIT 1;
 ```
 
-There is no separate task-run database or structured run log yet. Task output is the file the task changes, so inspect the expected output path named in the task definition.
+Example query for recent failures:
 
-## Developer guide
+```sql
+SELECT task_id, scheduled_for, error
+FROM task_runs
+WHERE status = 'failed'
+ORDER BY started_at DESC
+LIMIT 20;
+```
 
-### Scheduler architecture
+## Developer notes
 
-The active scheduler implementation in this repository is `scripts/task-loop.js`.
+The active scheduler implementation in this repository is `cmd/task-loop/main.go`.
 
-Important clarification:
+Important implementation details:
 
-- There is **not** a Go scheduler checked into this repo today.
-- Current runtime behavior refers to the JavaScript implementation.
-
-At a high level it does this:
-
-1. In continuous mode, acquire `.miniclaw/task-loop.lock` before the first scheduler iteration.
-2. Read `crons/tasks.yaml`.
-3. Parse standard YAML with `js-yaml` and require a top-level `tasks` array.
-4. Validate each task's object shape, `id`, `enabled`, `schedule`, `kind`, and `command` or `instruction`.
-5. Read `.miniclaw/task-state.json`.
-6. Find tasks whose cron expression matches the current minute.
-7. Skip any task that already ran in that exact minute slot.
-8. Execute the task directly as either `shell` or `opencode`.
-9. Update `last_run` on success, or `last_error` on failure.
-10. Write the updated state back to `.miniclaw/task-state.json`.
-
-Key implementation details:
-
-- Task parsing is handled by `readTasks()` with `js-yaml`; task shape checks are handled by `validateTask(...)`.
-- Runtime state is handled by `readState()` and `writeState(...)`.
-- Continuous-mode locking is handled by `acquireSchedulerLock()` and `releaseSchedulerLock(...)`.
-- Due-task matching is handled by `cronMatches(...)`.
-- Duplicate same-minute runs are blocked by `alreadyRanThisSlot(...)`.
-- Shell tasks are restricted by `shellCommandAllowed(...)` and metacharacter checks.
-- The scheduler is poll-based, not OS-cron based. By default it loops every 60 seconds.
-- `--once` mode skips the lock because it runs a single foreground iteration and exits.
-
-### What the cron scheduler actually does
-
-`node scripts/task-loop.js` is a long-running poll loop.
-
-It is responsible for:
-
-- deciding which enabled tasks are due now
-- executing `kind: shell` tasks directly
-- executing `kind: opencode` tasks by sending their instruction text to Opencode
-- recording success or failure into `.miniclaw/task-state.json`
-- preventing two live continuous scheduler loops from running from the same checkout
-
-It is **not** currently responsible for:
-
-- per-run structured logs
-- artifact indexing
-- rich observability or metrics
-
-### Why MiniClaw uses the Opencode web server
-
-MiniClaw currently talks to Opencode through the local HTTP server rather than querying a local database directly.
-
-Why this is the current design:
-
-- It uses Opencode's supported interface instead of relying on internal storage details.
-- The project can health-check the server with `/global/health` before making requests.
-- Authentication is handled consistently through the HTTP layer.
-- MiniClaw does not need to know where Opencode stores data on disk.
-- MiniClaw is less exposed to schema changes across Opencode versions.
-
-Could MiniClaw read a local DB instead? Possibly, but it is currently discouraged unless you are willing to own the coupling.
-
-Trade-offs of the DB approach:
-
-- tighter coupling to Opencode internals
-- risk that upgrades change the schema or storage location
-- more work around locking, migrations, and partial writes
-- no current DB adapter or documented contract in this repo
-
-So the short version is: querying a local DB could work as a future architecture option, but the web server is the safer integration boundary for this project today.
-
-### Where task prompts live
-
-The current source of truth for each `kind: opencode` task is its `instruction` text in `crons/tasks.yaml`.
-
-The scheduler no longer compiles task prose into another format first. Instead:
-
-- `kind: shell` tasks run the configured `command` after placeholder rendering, shell allowlist checks, and unsafe shell syntax rejection.
-- `kind: opencode` tasks send the rendered `instruction` to `opencode run`.
-- `OPENCODE_TASK_MODEL` or `--model` selects the model only for `kind: opencode` tasks; shell tasks do not use this model setting.
-
-For developers, that means:
-
-- Task definitions and prompts live in `crons/tasks.yaml`.
-- Runtime execution metadata lives separately in `.miniclaw/task-state.json`.
-- Editing the state file changes run metadata, not task behavior.
+- Cron matching supports standard 5-field expressions with `*`, lists, ranges, and steps.
+- Day-of-week accepts both `0` and `7` as Sunday.
+- Schedule slots are evaluated in UTC.
+- Duplicate runs are blocked by the SQLite unique key on `(task_id, scheduled_for)`.
+- Shell tasks are restricted by an allowlist and lightweight quote/escape parsing before execution.
+- `kind: opencode` tasks run `opencode run -m <model> <instruction>`.
+- `OPENCODE_TASK_MODEL` or `--model` selects the model only for `kind: opencode` tasks.
+- The preferred Opencode task model is `zen/minimax2.5-free`; when unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
+- `--once` mode skips the continuous scheduler lock because it runs a single foreground iteration and exits.
+- `--dry-run` does not execute tasks and does not create or update `miniclaw.db`.
 
 ## FAQ
 
@@ -309,35 +260,31 @@ Not today. All tasks currently live in the top-level `tasks:` array in `crons/ta
 
 ### What cron syntax is supported?
 
-Tasks use standard 5-field cron syntax: `minute hour day-of-month month day-of-week`.
+Tasks use standard 5-field cron syntax: `minute hour day-of-month month day-of-week`, with `*`, comma-separated lists, ranges, and step values.
 
-### What happens if a task is due more than once in the same minute?
+### What happens if the scheduler wakes five minutes late?
 
-The scheduler records successful runs by minute slot and skips a task that already succeeded in that exact slot.
+It still runs matching slots between `last_checked_at` and `now`, subject to the task's `missed` policy. A task scheduled for `23:15` can run at `23:20` and still records `scheduled_for = 23:15`.
 
 ### What happens when a task fails?
 
-The task's `last_error` field in `.miniclaw/task-state.json` is updated with a timestamped message. The previous `last_run` remains intact because it represents the most recent successful run.
+The `task_runs` row for that `(task_id, scheduled_for)` is marked `failed`, with a short error message and duration. The row remains in the database, so the scheduler will not blindly retry the same scheduled slot in the same normal pass.
 
 ### Can I run two schedulers at the same time?
 
-No. Continuous mode uses `.miniclaw/task-loop.lock` to prevent a second live scheduler from starting. `--once` runs do not acquire the lock.
+No. Continuous mode uses `task-loop.lock` to prevent a second live scheduler from starting. `--once` runs do not acquire the lock.
 
 ### Do shell tasks run arbitrary shell strings?
 
-No. `scripts/task-loop.js` applies placeholder rendering, an allowlist, and unsafe shell syntax rejection before running `kind: shell` commands.
-
-### Which model runs Opencode tasks?
-
-The preferred Opencode task model is `zen/minimax2.5-free`. When that model is unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically. You can override the model with `OPENCODE_TASK_MODEL=provider/model` or `--model provider/model`.
+No. The Go scheduler applies placeholder rendering, an allowlist, and quote/escape parsing before running `kind: shell` commands. Do not loosen this casually; arbitrary shell cron strings are foot-guns.
 
 ### Is there a task-run database?
 
-No. Runtime state is tracked in `.miniclaw/task-state.json`. There is no structured run-history database yet.
+Yes. Runtime history is stored in `miniclaw.db` using SQLite.
 
 ## Architecture improvement ideas
 
-These are the highest-value improvements suggested by the current implementation.
+These are the highest-value improvements left after the Go + SQLite scheduler rewrite.
 
 ### Split tasks into one file per task
 
@@ -358,8 +305,7 @@ A future shape could be something like `crons/tasks/*.yaml`.
 
 Current state:
 
-- schedules, kinds, and Opencode instructions all live together in `crons/tasks.yaml`
-- runtime state already lives separately in `.miniclaw/task-state.json`
+- schedules, kinds, missed-run policies, and Opencode instructions all live together in `crons/tasks.yaml`
 
 Why improve it:
 
@@ -367,26 +313,27 @@ Why improve it:
 - keeps task config shorter
 - makes prompts easier to test
 
-### Add structured run history
+### Add status tooling
 
 Current state:
 
-- only `last_run` and optional `last_error` are stored
+- SQLite stores structured history, but status inspection is still manual through `sqlite3`
 
 Why improve it:
 
-- easier debugging
-- clearer success/failure history
-- artifact discovery becomes trivial
-
-A simple approach would be a JSONL run log per task.
+- a `task-loop status` or `miniclaw tasks status` command would make failures easier to spot
+- canned queries would avoid typo-prone manual SQL
+- summaries could show last success, last failure, and currently running rows per task
 
 ### Harden the scheduler
 
-Scheduler hardening priorities:
+Current test coverage includes unit tests for cron slot matching and missed-run policy selection, plus integration-style tests that exercise scheduler iterations against temporary task files, shell scripts, and SQLite databases.
 
-- tests for cron parsing and due-task detection
-- safe handling for invalid state or task config
+Remaining scheduler hardening priorities:
+
+- more cron parser edge cases, especially invalid expressions and Sunday `0`/`7` behavior
+- a migration path from old `task-state.json` files if anyone has long-lived state they care about
+- bounded catch-up limits for tasks that might generate huge backlogs
 - better operational logging and metrics
 
 ## File reference
@@ -394,7 +341,8 @@ Scheduler hardening priorities:
 | Purpose | File |
 |---|---|
 | Active task definitions | `crons/tasks.yaml` |
-| Runtime task state | `.miniclaw/task-state.json` |
-| Scheduler implementation | `scripts/task-loop.js` |
+| Runtime task history | `miniclaw.db` |
+| Scheduler implementation | `cmd/task-loop/main.go` |
+| Continuous scheduler lock | `task-loop.lock` |
 | Session export script | `scripts/export-sessions.sh` |
 | Memory workflow guide | `docs/memory-workflow.md` |

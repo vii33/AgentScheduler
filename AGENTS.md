@@ -115,9 +115,9 @@ Scheduled tasks are declared in `crons/tasks.yaml`.
 
 ### Task runner rules
 - Re-read `crons/tasks.yaml` before each run to pick up any edits.
-- After a successful run, update `last_run` in `.miniclaw/task-state.json`.
-- If a task fails, set `last_error` in `.miniclaw/task-state.json` with a timestamp and short description.
-- Never run a task more than once for the same scheduled interval.
+- Record every task attempt in `miniclaw.db` as a `task_runs` row.
+- Use the `(task_id, scheduled_for)` uniqueness rule to avoid duplicate runs for the same scheduled interval.
+- Apply each task's `missed` policy (`run-latest`, `skip`, or `catch-up`) when the scheduler was offline or delayed.
 - Only failures are reported to the user; successful runs are silent unless the output is the point.
 
 ---
