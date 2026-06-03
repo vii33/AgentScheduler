@@ -95,9 +95,9 @@ The current source of truth for what `daily-analysis` and `weekly-review` should
 
 That means memory-compression behavior is defined in YAML task config, not in Markdown task prose.
 
-### Execution logic in `scripts/task-loop.js`
+### Execution logic in `cmd/task-loop`
 
-The scheduler no longer compiles task prose into another format first.
+The Go scheduler no longer compiles task prose into another format first.
 
 Instead:
 
@@ -107,13 +107,13 @@ Instead:
 
 So the generic execution logic lives in code, but the memory-specific shell commands and Opencode prompt text live in `crons/tasks.yaml`.
 
-### Runtime state in `.miniclaw/task-state.json`
+### Runtime history in `miniclaw.db`
 
 For memory tasks:
 
 - task definitions and prompts live in `crons/tasks.yaml`
-- runtime execution metadata lives separately in `.miniclaw/task-state.json`
-- editing the state file changes run metadata, not memory behavior
+- runtime execution history lives separately in `miniclaw.db`
+- editing the SQLite database changes run metadata, not memory behavior
 
 ## How to keep memory from getting polluted over time
 
@@ -158,7 +158,8 @@ Memory tasks are normal MiniClaw tasks. To add one:
 2. Use `kind: shell` for local scripts or `kind: opencode` for model-assisted analysis.
 3. Give the task an explicit output path, such as `memory/knowledge/my-topic.md`.
 4. Keep durable facts concise and write long-form notes under `memory/knowledge/`.
-5. Test schedule matching with `node scripts/task-loop.js --once --dry-run --at <ISO timestamp>`.
+5. Pick a `missed` policy; `run-latest` is the default and is best for most memory tasks.
+6. Test schedule matching with `go run ./cmd/task-loop --once --dry-run --at <ISO timestamp>`.
 
 Example:
 
@@ -166,6 +167,7 @@ Example:
   - id: monthly-memory-review
     enabled: true
     schedule: "0 9 1 * *"
+    missed: run-latest
     kind: opencode
     instruction: |
       Review memory/knowledge/ and MEMORY.md.
@@ -199,7 +201,7 @@ Yes. Set `enabled: false` for the relevant task in `crons/tasks.yaml`.
 
 ### What should I inspect when a memory task fails?
 
-Check `.miniclaw/task-state.json` for `last_error`, then inspect the output path named by the task. For export failures, also verify that the Opencode HTTP server is healthy and that `curl` and `jq` are installed.
+Query `miniclaw.db` for failed `task_runs`, then inspect the output path named by the task. For export failures, also verify that the Opencode HTTP server is healthy and that `curl` and `jq` are installed.
 
 ## File reference
 
@@ -212,5 +214,5 @@ Check `.miniclaw/task-state.json` for `last_error`, then inspect the output path
 | Daily history template | `memory/history/TEMPLATE.md` |
 | Weekly or topical long-form notes | `memory/knowledge/` |
 | Knowledge template | `memory/knowledge/TEMPLATE.md` |
-| Runtime task state | `.miniclaw/task-state.json` |
+| Runtime task history | `miniclaw.db` |
 | Scheduler architecture | `docs/task-scheduler-architecture.md` |

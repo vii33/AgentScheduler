@@ -5,7 +5,10 @@
 node_modules/
 
 # Machine-managed scheduler state (created automatically on first run)
-.miniclaw/task-state.json
+task-state.json
+miniclaw.db
+miniclaw.db-*
+task-loop.lock
 
 # Generated daily session export files (optional: track them if you want history in git)
 # memory/history/*.md
@@ -16,4 +19,3 @@ Thumbs.db
 *.swp
 *.swo
 .vscode/settings.json
-.miniclaw/task-loop.lock
