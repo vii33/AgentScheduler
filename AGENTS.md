@@ -47,7 +47,7 @@ Memory does not survive sessions on its own — files are the only way to persis
 
 ## Session Export and Analysis
 
-Daily session exports give MiniClaw a raw record of what was worked on.
+Daily session exports give AgentScheduler a raw record of what was worked on.
 
 ### Export (`daily-export` cron)
 - Run `scripts/export-sessions.sh` nightly.
@@ -81,7 +81,7 @@ Daily session exports give MiniClaw a raw record of what was worked on.
 
 ## Opencode Integration
 
-MiniClaw communicates with Opencode via its local HTTP server (default: `http://127.0.0.1:4096`).
+AgentScheduler communicates with Opencode via its local HTTP server (default: `http://127.0.0.1:4096`).
 
 **Before any API call**, verify the server is healthy:
 ```
@@ -115,7 +115,7 @@ Scheduled tasks are declared in `crons/tasks.yaml`.
 
 ### Task runner rules
 - Re-read `crons/tasks.yaml` before each run to pick up any edits.
-- Record every task attempt in `miniclaw.db` as a `task_runs` row.
+- Record every task attempt in `agentscheduler.db` as a `task_runs` row.
 - Use the `(task_id, scheduled_for)` uniqueness rule to avoid duplicate runs for the same scheduled interval.
 - Apply each task's `missed` policy (`run-latest`, `skip`, or `catch-up`) when the scheduler was offline or delayed.
 - Only failures are reported to the user; successful runs are silent unless the output is the point.
@@ -131,7 +131,7 @@ Scheduled tasks are declared in `crons/tasks.yaml`.
 
 ---
 
-## What MiniClaw Does NOT Do
+## What AgentScheduler Does NOT Do
 
 - Does not browse the internet autonomously.
 - Does not execute shell commands without explicit permission.

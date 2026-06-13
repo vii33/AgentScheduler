@@ -1,8 +1,8 @@
-# MiniClaw
+# AgentScheduler
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vii33/MiniClaw)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vii33/AgentScheduler)
 
-MiniClaw is a Markdown-configured Go task runner for local automations and CLI-agent workflows. It runs scheduled tasks from `crons/tasks.yaml`, where each task can run either an allowlisted shell command or an instruction through Opencode, Copilot CLI, Claude, Codex, or Pi.
+AgentScheduler is a Markdown-configured Go task runner for local automations and CLI-agent workflows. It runs scheduled tasks from `crons/tasks.yaml`, where each task can run either an allowlisted shell command or an instruction through Opencode, Copilot CLI, Claude, Codex, or Pi.
 
 ---
 
@@ -12,14 +12,14 @@ MiniClaw is a Markdown-configured Go task runner for local automations and CLI-a
 - **Missed-Run Handling**: Uses `skip`, `run-latest`, or `catch-up` policies when the PC was asleep or offline.
 - **Shell Actions**: Executes shell commands for automations such as exports, maintenance, or local scripts.
 - **Agent Instructions**: Sends task instructions through Opencode, Copilot CLI, Claude, Codex, or Pi for model-assisted automations.
-- **Runtime History**: Tracks task attempts, outcomes, durations, and missed schedule slots in `miniclaw.db`.
+- **Runtime History**: Tracks task attempts, outcomes, durations, and missed schedule slots in `agentscheduler.db`.
 
 ---
 
 ## File Structure
 
 ```
-miniclaw/
+agentscheduler/
 ├── README.md          ← Project overview and scheduler usage
 ├── .env.example       ← Environment variable template
 ├── AGENTS.md          ← Core operating rules (read this first)
@@ -28,14 +28,14 @@ miniclaw/
 ├── scripts/
 │   └── export-sessions.sh   ← Built-in export helper used by scheduled tasks
 ├── cmd/
-│   └── task-loop/           ← Go scheduler that reads tasks.yaml and writes miniclaw.db
+│   └── task-loop/           ← Go scheduler that reads tasks.yaml and writes agentscheduler.db
 ├── docs/
 │   └── task-scheduler-architecture.md ← Task creation, scheduler behavior, runtime state, and FAQ
-├── miniclaw.db        ← Machine-managed SQLite task run history (generated)
+├── agentscheduler.db        ← Machine-managed SQLite task run history (generated)
 └── task-loop.lock     ← Continuous scheduler lock with PID and start timestamp (generated)
 ```
 
-All task configuration lives in `crons/tasks.yaml`. Runtime history is tracked in `miniclaw.db` with SQLite so task status queries stay simple and unambiguous.
+All task configuration lives in `crons/tasks.yaml`. Runtime history is tracked in `agentscheduler.db` with SQLite so task status queries stay simple and unambiguous.
 
 ---
 
@@ -73,7 +73,7 @@ go run ./cmd/task-loop --once
 go run ./cmd/task-loop --once --dry-run --at 2026-03-07T23:15:00Z
 ```
 
-Runtime history is tracked in `miniclaw.db`. This SQLite database is machine-managed and should not be edited by hand outside intentional maintenance.
+Runtime history is tracked in `agentscheduler.db`. This SQLite database is machine-managed and should not be edited by hand outside intentional maintenance.
 
 Task action execution model:
 
@@ -88,7 +88,7 @@ Task action execution model:
 ## Further Documentation
 
 - [`docs/task-scheduler-architecture.md`](docs/task-scheduler-architecture.md) for task storage, task creation, scheduler behavior, SQLite runtime history, missed-run handling, Mermaid diagrams, and the scheduler FAQ.
-- [`docs/memory-workflow.md`](docs/memory-workflow.md) for the built-in memory workflow.
+- [`docs/memory-workflow.md`](docs/memory-workflow.md) for the Memory System example built on the scheduler primitives.
 
 ---
 
@@ -106,7 +106,7 @@ Task action execution model:
 
 ## Testing in GitHub Codespaces
 
-The fastest way to try MiniClaw is a GitHub Codespace: a cloud VM with everything pre-installed.
+The fastest way to try AgentScheduler is a GitHub Codespace: a cloud VM with everything pre-installed.
 
 1. Click the **Open in Codespaces** badge above (or go to **Code → Codespaces → New codespace**).
 2. The container installs `opencode`, `curl`, and `jq` automatically.
@@ -159,7 +159,7 @@ The Go test suite covers cron slot matching, missed-run policy selection, SQLite
 
 ## Roadmap
 
-- [ ] Add a friendly task status command on top of `miniclaw.db`.
+- [ ] Add a friendly task status command on top of `agentscheduler.db`.
 - [ ] Add bounded catch-up limits for tasks with `missed: catch-up`.
 - [ ] Add structured scheduler logs and task-level metrics.
 - [ ] Add artifact retention and cleanup controls for generated outputs.

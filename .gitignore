@@ -6,8 +6,8 @@ node_modules/
 
 # Machine-managed scheduler state (created automatically on first run)
 task-state.json
-miniclaw.db
-miniclaw.db-*
+agentscheduler.db
+agentscheduler.db-*
 task-loop.lock
 
 # Generated daily session export files (optional: track them if you want history in git)
