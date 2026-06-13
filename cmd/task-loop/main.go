@@ -233,7 +233,7 @@ func findRepoPaths() (repoPaths, error) {
 			return repoPaths{
 				repoRoot:  root,
 				tasksFile: filepath.Join(root, "crons", "tasks.yaml"),
-				dbFile:    filepath.Join(root, "miniclaw.db"),
+				dbFile:    filepath.Join(root, "agentscheduler.db"),
 				lockFile:  filepath.Join(root, "task-loop.lock"),
 			}, nil
 		}

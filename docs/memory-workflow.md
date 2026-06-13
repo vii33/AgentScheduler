@@ -1,6 +1,6 @@
 # Memory Workflow
 
-This document covers MiniClaw's memory workflow: scheduled session export, daily analysis, weekly review, memory-file responsibilities, and memory hygiene. The memory workflow is only one set of scheduled tasks built on MiniClaw's task runner.
+This document covers the Memory System example built on AgentScheduler: scheduled session export, daily analysis, weekly review, memory-file responsibilities, and memory hygiene. The memory workflow is an example scheduler configuration, not the scheduler's whole purpose.
 
 For task creation, scheduler internals, runtime state, and cron architecture, see [`docs/task-scheduler-architecture.md`](task-scheduler-architecture.md).
 
@@ -107,12 +107,12 @@ Instead:
 
 So the generic execution logic lives in code, but the memory-specific shell commands and Opencode prompt text live in `crons/tasks.yaml`.
 
-### Runtime history in `miniclaw.db`
+### Runtime history in `agentscheduler.db`
 
 For memory tasks:
 
 - task definitions and prompts live in `crons/tasks.yaml`
-- runtime execution history lives separately in `miniclaw.db`
+- runtime execution history lives separately in `agentscheduler.db`
 - editing the SQLite database changes run metadata, not memory behavior
 
 ## How to keep memory from getting polluted over time
@@ -152,7 +152,7 @@ This project relies on human and prompt discipline. It does **not** yet enforce:
 
 ## How to create or change a memory task
 
-Memory tasks are normal MiniClaw tasks. To add one:
+Memory System tasks are normal AgentScheduler tasks. To add one:
 
 1. Add a new task object to `crons/tasks.yaml`.
 2. Use `kind: shell` for local scripts or `kind: opencode` for model-assisted analysis.
@@ -201,7 +201,7 @@ Yes. Set `enabled: false` for the relevant task in `crons/tasks.yaml`.
 
 ### What should I inspect when a memory task fails?
 
-Query `miniclaw.db` for failed `task_runs`, then inspect the output path named by the task. For export failures, also verify that the Opencode HTTP server is healthy and that `curl` and `jq` are installed.
+Query `agentscheduler.db` for failed `task_runs`, then inspect the output path named by the task. For export failures, also verify that the Opencode HTTP server is healthy and that `curl` and `jq` are installed.
 
 ## File reference
 
@@ -214,5 +214,5 @@ Query `miniclaw.db` for failed `task_runs`, then inspect the output path named b
 | Daily history template | `memory/history/TEMPLATE.md` |
 | Weekly or topical long-form notes | `memory/knowledge/` |
 | Knowledge template | `memory/knowledge/TEMPLATE.md` |
-| Runtime task history | `miniclaw.db` |
+| Runtime task history | `agentscheduler.db` |
 | Scheduler architecture | `docs/task-scheduler-architecture.md` |

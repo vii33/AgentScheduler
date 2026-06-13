@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-echo "── MiniClaw dev setup ──────────────────────────────────────────────────────"
+echo "── AgentScheduler dev setup ──────────────────────────────────────────────────────"
 
 # ── System dependencies ──────────────────────────────────────────────────────
 echo "→ Installing system dependencies (curl, jq)..."

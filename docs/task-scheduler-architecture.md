@@ -1,6 +1,6 @@
 # Task and Scheduler Architecture
 
-This document covers MiniClaw's Go task runner: how tasks are stored, how to create a new task, how missed schedules are handled, and how runtime history is recorded in SQLite.
+This document covers AgentScheduler's Go task runner: how tasks are stored, how to create a new task, how missed schedules are handled, and how runtime history is recorded in SQLite.
 
 For the memory workflow built on top of these task primitives, see [`docs/memory-workflow.md`](memory-workflow.md).
 
@@ -10,7 +10,7 @@ For the memory workflow built on top of these task primitives, see [`docs/memory
 |---|---|
 | How are tasks stored individually? | As entries in the top-level `tasks:` array inside `crons/tasks.yaml`, not as separate files. |
 | How can I create new tasks? | Add a YAML object to `crons/tasks.yaml` with `id`, `enabled`, `schedule`, optional `missed`, `kind`, and either `command` or `instruction`. |
-| How do I know when a task last succeeded? | Query `miniclaw.db`, specifically the newest `task_runs` row for the task with `status = 'success'`. |
+| How do I know when a task last succeeded? | Query `agentscheduler.db`, specifically the newest `task_runs` row for the task with `status = 'success'`. |
 | What was the outcome of a task? | Every attempt creates or updates a `task_runs` row with `scheduled_for`, `started_at`, `finished_at`, `status`, `duration_ms`, and optional `error`. |
 | What does the cron scheduler do? | `cmd/task-loop` reads `crons/tasks.yaml`, computes due schedule slots since the last scheduler check, records attempts in SQLite, and executes due shell or Opencode work. |
 | Can I run two continuous schedulers at once? | No. Continuous mode owns `task-loop.lock`; a second live scheduler exits instead of starting. |
@@ -26,7 +26,7 @@ flowchart LR
     User[User / Operator]
     Scheduler[cmd/task-loop Go scheduler]
     Tasks[crons/tasks.yaml\nTask definitions]
-    DB[miniclaw.db\ntask_runs + scheduler_state]
+    DB[agentscheduler.db\ntask_runs + scheduler_state]
     Lock[task-loop.lock\ncontinuous-mode owner]
     Server[Opencode CLI]
     Export[scripts/export-sessions.sh]
@@ -47,7 +47,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     A[Scheduler iteration] --> B[Read crons/tasks.yaml]
-    B --> C[Open miniclaw.db]
+    B --> C[Open agentscheduler.db]
     C --> D[Read scheduler_state.last_checked_at]
     D --> E[Compute matching schedule slots through now]
     E --> F[Apply missed policy]
@@ -93,7 +93,7 @@ Important details:
 
 - `crons/tasks.yaml` is the active source of truth for task definitions.
 - The top-level value must be an object with a `tasks` array.
-- Runtime execution history does not live in `crons/tasks.yaml`; it lives in `miniclaw.db`.
+- Runtime execution history does not live in `crons/tasks.yaml`; it lives in `agentscheduler.db`.
 
 ### How to create a new task
 
@@ -196,7 +196,7 @@ Strong default: use `run-latest`. Catching up every missed task after a week off
 6. Keep output paths explicit in the command or instruction.
 7. Test due-slot matching with `go run ./cmd/task-loop --once --dry-run --at <ISO timestamp>`.
 8. Run one real scheduler pass only when the expected task slot should be due.
-9. Inspect recent attempts with `sqlite3 miniclaw.db 'select task_id, scheduled_for, status, error from task_runs order by started_at desc limit 20;'`.
+9. Inspect recent attempts with `sqlite3 agentscheduler.db 'select task_id, scheduled_for, status, error from task_runs order by started_at desc limit 20;'`.
 
 Built-in tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves against the `scheduled_for` slot at run time.
 
@@ -224,7 +224,7 @@ go run ./cmd/task-loop --once --dry-run --at 2026-03-07T23:15:00Z
 go run ./cmd/task-loop --poll-seconds 300
 ```
 
-Runtime history is stored in `miniclaw.db`. This file is machine-managed and should not be edited by hand outside intentional SQLite maintenance.
+Runtime history is stored in `agentscheduler.db`. This file is machine-managed and should not be edited by hand outside intentional SQLite maintenance.
 
 ### Runtime database
 
@@ -287,7 +287,7 @@ Important implementation details:
 - `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks; use task-level `model` or per-agent environment variables for other agent kinds.
 - The preferred Opencode task model is `zen/minimax2.5-free`; when unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
 - `--once` mode skips the continuous scheduler lock because it runs a single foreground iteration and exits.
-- `--dry-run` does not execute tasks and does not create or update `miniclaw.db`.
+- `--dry-run` does not execute tasks and does not create or update `agentscheduler.db`.
 
 ## FAQ
 
@@ -317,7 +317,7 @@ No. The Go scheduler applies placeholder rendering, an allowlist, and quote/esca
 
 ### Is there a task-run database?
 
-Yes. Runtime history is stored in `miniclaw.db` using SQLite.
+Yes. Runtime history is stored in `agentscheduler.db` using SQLite.
 
 ## Architecture improvement ideas
 
@@ -358,7 +358,7 @@ Current state:
 
 Why improve it:
 
-- a `task-loop status` or `miniclaw tasks status` command would make failures easier to spot
+- a `task-loop status` or `agentscheduler tasks status` command would make failures easier to spot
 - canned queries would avoid typo-prone manual SQL
 - summaries could show last success, last failure, and currently running rows per task
 
@@ -378,7 +378,7 @@ Remaining scheduler hardening priorities:
 | Purpose | File |
 |---|---|
 | Active task definitions | `crons/tasks.yaml` |
-| Runtime task history | `miniclaw.db` |
+| Runtime task history | `agentscheduler.db` |
 | Scheduler implementation | `cmd/task-loop/main.go` |
 | Continuous scheduler lock | `task-loop.lock` |
 | Session export script | `scripts/export-sessions.sh` |

@@ -1,5 +1,5 @@
 {
-  "name": "MiniClaw",
+  "name": "AgentScheduler",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
 
   // Install system dependencies (curl and jq are required by export-sessions.sh)

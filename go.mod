@@ -1,4 +1,4 @@
-module github.com/vii33/miniclaw
+module github.com/vii33/agentscheduler
 
 go 1.25
 

@@ -10,6 +10,7 @@ Read this at the start of every session._
 <!-- Coding style, tool choices, workflow preferences -->
 <!-- - YYYY-MM-DD: <fact> -->
 - 2026-06-03: User prefers candid, opinionated feedback and is okay with calling out bad ideas directly.
+- 2026-06-12: User reaffirmed they prefer strong, candid opinions and direct pushback on bad ideas.
 
 
 ## Project Context
