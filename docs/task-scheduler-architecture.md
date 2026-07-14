@@ -109,6 +109,8 @@ Use an agent kind when the task should ask a local CLI agent to read, write, sum
     schedule: "30 8 * * 1-5"
     missed: run-latest
     kind: opencode
+    model: github-copilot/gpt-5.5
+    thinking: medium
     instruction: |
       Summarize the project status and write the result to docs/status.md.
 
@@ -173,6 +175,7 @@ Use `kind: shell` when the task should run an allowlisted local script command.
 | `command` | For `shell` | Local command accepted by the scheduler's shell allowlist. |
 | `instruction` | For agent kinds | Prompt text sent to the configured agent CLI after placeholder rendering. |
 | `model` | No | Optional model override for an agent task; Opencode also supports `OPENCODE_TASK_MODEL` / `--model`. |
+| `thinking` | No | Optional Opencode reasoning effort, passed as `--variant <thinking>`; only valid for `kind: opencode`. |
 
 #### Missed-run policy
 
@@ -282,9 +285,10 @@ Important implementation details:
 - Schedule slots are evaluated in UTC.
 - Duplicate runs are blocked by the SQLite unique key on `(task_id, scheduled_for)`.
 - Shell tasks are restricted by an allowlist and lightweight quote/escape parsing before execution.
-- `kind: opencode` tasks run `opencode run -m <model> <instruction>`.
+- `kind: opencode` tasks run `opencode run -m <model> [--variant <thinking>] <instruction>`.
 - `kind: copilot-cli`, `claude`, `codex`, and `pi-agent` tasks run the matching CLI binary in non-interactive mode.
 - `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks; use task-level `model` or per-agent environment variables for other agent kinds.
+- `thinking` is supported only for `kind: opencode` and maps to Opencode's provider-specific `--variant` flag.
 - The preferred Opencode task model is `zen/minimax2.5-free`; when unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
 - `--once` mode skips the continuous scheduler lock because it runs a single foreground iteration and exits.
 - `--dry-run` does not execute tasks and does not create or update `agentscheduler.db`.

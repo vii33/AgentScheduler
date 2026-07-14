@@ -48,7 +48,23 @@ Agent instruction models:
 - `kind: opencode` keeps the existing preferred model: `zen/minimax2.5-free`.
 - Opencode automatically falls back to `opencode/minimax-m2.5-free` when `zen` is not configured and the fallback model is available.
 - Override Opencode manually with `OPENCODE_TASK_MODEL=provider/model`, `--model`, or a task-level `model` field.
+- For `kind: opencode`, set task-level `thinking: medium` to pass Opencode's provider-specific reasoning effort as `--variant medium`.
 - Override other agent kinds with a task-level `model` field or the matching environment variable: `COPILOT_MODEL`, `CLAUDE_TASK_MODEL`, `CODEX_TASK_MODEL`, or `PI_AGENT_TASK_MODEL`.
+
+Example Opencode task using GPT-5.5 with medium thinking effort:
+
+```yaml
+tasks:
+  - id: weekly-planning
+    enabled: true
+    schedule: "0 9 * * 1"
+    missed: run-latest
+    kind: opencode
+    model: github-copilot/gpt-5.5
+    thinking: medium
+    instruction: |
+      Review the current project notes and propose the three highest-impact tasks for this week.
+```
 
 > **Note:** `cmd/task-loop` executes `kind: shell` tasks as allowlisted local script commands. Agent tasks are direct binary invocations, not arbitrary shell strings. Each CLI must be installed and authenticated separately.
 
@@ -81,6 +97,7 @@ Task action execution model:
 - `kind: opencode` sends the rendered `instruction` to `opencode run`.
 - `kind: copilot-cli`, `claude`, `codex`, and `pi-agent` send the rendered `instruction` to the matching local CLI in non-interactive mode.
 - `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks. Use task-level `model` or the per-agent environment variables for other agent kinds.
+- `thinking` is supported for `kind: opencode` tasks and maps to Opencode's `--variant` flag, for example `thinking: medium`.
 - The preferred Opencode task model is `zen/minimax2.5-free`; when that model is unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
 
 ---

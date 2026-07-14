@@ -57,6 +57,7 @@ type task struct {
 	Command     string `yaml:"command"`
 	Instruction string `yaml:"instruction"`
 	Model       string `yaml:"model"`
+	Thinking    string `yaml:"thinking"`
 }
 
 type agentAdapter struct {
@@ -353,6 +354,9 @@ func validateTask(t task, index int, seen map[string]bool) error {
 	}
 	if t.Kind != taskKindShell && strings.TrimSpace(t.Instruction) == "" {
 		return fmt.Errorf("task '%s' has kind=%s but no valid 'instruction' field", label, t.Kind)
+	}
+	if strings.TrimSpace(t.Thinking) != "" && t.Kind != taskKindOpencode {
+		return fmt.Errorf("task '%s' has 'thinking' set, but thinking is only supported for kind=opencode", label)
 	}
 	return nil
 }
@@ -736,7 +740,8 @@ func executeTask(t task, getModel func() string, scheduledFor time.Time, repoRoo
 		if model == "" {
 			model = getModel()
 		}
-		result := runCommand("opencode", []string{"run", "-m", model, instruction}, repoRoot)
+		args := opencodeArgs(instruction, model, t.Thinking)
+		result := runCommand("opencode", args, repoRoot)
 		if result.code != 0 {
 			return fmt.Errorf("OpenCode task failed: %s", firstNonEmpty(result.stderr, result.stdout))
 		}
@@ -752,6 +757,14 @@ func executeTask(t task, getModel func() string, scheduledFor time.Time, repoRoo
 	}
 
 	return fmt.Errorf("task '%s' has unknown kind: %s", t.ID, t.Kind)
+}
+
+func opencodeArgs(instruction string, model string, thinking string) []string {
+	args := []string{"run", "-m", model}
+	if trimmedThinking := strings.TrimSpace(thinking); trimmedThinking != "" {
+		args = append(args, "--variant", trimmedThinking)
+	}
+	return append(args, instruction)
 }
 
 func taskModel(t task, adapter agentAdapter) string {

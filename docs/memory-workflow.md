@@ -104,6 +104,7 @@ Instead:
 - `kind: shell` tasks run the configured `command` after placeholder rendering, shell allowlist checks, and unsafe shell syntax rejection.
 - `kind: opencode`, `copilot-cli`, `claude`, `codex`, and `pi-agent` tasks send the rendered `instruction` to the matching local CLI.
 - `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks; task-level `model` and per-agent environment variables select models for other agent kinds.
+- `thinking` is available for `kind: opencode` tasks and maps to Opencode's provider-specific `--variant` flag.
 
 So the generic execution logic lives in code, but the memory-specific shell commands and Opencode prompt text live in `crons/tasks.yaml`.
 

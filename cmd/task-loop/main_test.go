@@ -165,6 +165,36 @@ func TestValidateTaskRejectsAgentTaskWithoutInstruction(t *testing.T) {
 	}
 }
 
+func TestValidateTaskRejectsThinkingForNonOpencodeTask(t *testing.T) {
+	err := validateTask(task{
+		ID:          "codex-thinking",
+		Enabled:     enabled(true),
+		Schedule:    "0 9 * * *",
+		Missed:      "run-latest",
+		Kind:        taskKindCodex,
+		Instruction: "Summarize this repository.",
+		Thinking:    "medium",
+	}, 0, map[string]bool{})
+	if err == nil {
+		t.Fatal("expected thinking on non-opencode task to fail validation")
+	}
+	if !strings.Contains(err.Error(), "only supported for kind=opencode") {
+		t.Fatalf("expected thinking validation error, got %v", err)
+	}
+}
+
+func TestOpencodeArgsIncludeThinkingVariant(t *testing.T) {
+	want := []string{"run", "-m", "github-copilot/gpt-5.5", "--variant", "medium", "explain"}
+	if got := opencodeArgs("explain", "github-copilot/gpt-5.5", " medium "); !slices.Equal(got, want) {
+		t.Fatalf("expected args %#v, got %#v", want, got)
+	}
+
+	withoutThinking := []string{"run", "-m", "github-copilot/gpt-5.5", "explain"}
+	if got := opencodeArgs("explain", "github-copilot/gpt-5.5", ""); !slices.Equal(got, withoutThinking) {
+		t.Fatalf("expected args %#v, got %#v", withoutThinking, got)
+	}
+}
+
 func TestAgentAdapterArgs(t *testing.T) {
 	tests := []struct {
 		kind        string

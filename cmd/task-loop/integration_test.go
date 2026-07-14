@@ -321,3 +321,38 @@ func TestRunIterationRecordsSuccessfulAgentTask(t *testing.T) {
 		t.Fatalf("expected one successful agent run, got %+v", runs)
 	}
 }
+
+func TestRunIterationPassesOpencodeThinkingVariant(t *testing.T) {
+	paths := testRepo(t, `tasks:
+  - id: opencode-thinking
+    enabled: true
+    schedule: "15 23 * * *"
+    missed: run-latest
+    kind: opencode
+    model: github-copilot/gpt-5.5
+    thinking: medium
+    instruction: "Summarize YYYY-MM-DD"
+`, nil)
+	binDir := filepath.Join(paths.repoRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeOpencode := filepath.Join(binDir, "opencode")
+	if err := os.WriteFile(fakeOpencode, []byte("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"$@\" > opencode.args\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	argsContent, err := os.ReadFile(filepath.Join(paths.repoRoot, "opencode.args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(argsContent)); got != "run\n-m\ngithub-copilot/gpt-5.5\n--variant\nmedium\nSummarize 2026-03-07" {
+		t.Fatalf("unexpected opencode args: %q", got)
+	}
+}
