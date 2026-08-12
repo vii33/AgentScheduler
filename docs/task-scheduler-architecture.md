@@ -86,7 +86,7 @@ tasks:
     schedule: "0 23 * * *"
     missed: run-latest
     kind: shell
-    command: "./scripts/export-sessions.sh"
+    command: "./scripts/export-sessions.sh YYYY-MM-DD"
 ```
 
 Important details:
@@ -160,7 +160,7 @@ Use `kind: shell` when the task should run an allowlisted local script command.
     schedule: "0 23 * * *"
     missed: run-latest
     kind: shell
-    command: "./scripts/export-sessions.sh"
+    command: "./scripts/export-sessions.sh YYYY-MM-DD"
 ```
 
 #### Required fields
@@ -201,7 +201,7 @@ Strong default: use `run-latest`. Catching up every missed task after a week off
 8. Run one real scheduler pass only when the expected task slot should be due.
 9. Inspect recent attempts with `sqlite3 agentscheduler.db 'select task_id, scheduled_for, status, error from task_runs order by started_at desc limit 20;'`.
 
-Built-in tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves against the `scheduled_for` slot at run time.
+Built-in tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves against the `scheduled_for` slot in `Europe/Berlin` time at run time. `scripts/export-sessions.sh` uses the same timezone for its default date and session-date filtering.
 
 ### How to run the scheduler
 
@@ -282,14 +282,14 @@ Important implementation details:
 
 - Cron matching supports standard 5-field expressions with `*`, lists, ranges, and steps.
 - Day-of-week accepts both `0` and `7` as Sunday.
-- Schedule slots are evaluated in UTC.
+- Schedule slots and `YYYY-MM-DD` / `YYYY-Www` placeholders are evaluated in `Europe/Berlin`, including CET/CEST transitions. Runtime timestamps remain stored in UTC.
 - Duplicate runs are blocked by the SQLite unique key on `(task_id, scheduled_for)`.
 - Shell tasks are restricted by an allowlist and lightweight quote/escape parsing before execution.
 - `kind: opencode` tasks run `opencode run -m <model> [--variant <thinking>] <instruction>`.
 - `kind: copilot-cli`, `claude`, `codex`, and `pi-agent` tasks run the matching CLI binary in non-interactive mode.
 - `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks; use task-level `model` or per-agent environment variables for other agent kinds.
 - `thinking` is supported only for `kind: opencode` and maps to Opencode's provider-specific `--variant` flag.
-- The preferred Opencode task model is `zen/minimax2.5-free`; when unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
+- The preferred Opencode task model is `github-copilot/gpt-5.4-mini`.
 - `--once` mode skips the continuous scheduler lock because it runs a single foreground iteration and exits.
 - `--dry-run` does not execute tasks and does not create or update `agentscheduler.db`.
 

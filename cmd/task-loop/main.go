@@ -23,10 +23,10 @@ import (
 )
 
 const (
-	defaultModel                   = "zen/minimax2.5-free"
-	fallbackModel                  = "opencode/minimax-m2.5-free"
+	defaultModel                   = "github-copilot/gpt-5.4-mini"
 	stateKeyLastChecked            = "last_checked_at"
 	dryRunInstructionPreviewLength = 80
+	scheduleTimeZone               = "Europe/Berlin"
 
 	taskKindShell      = "shell"
 	taskKindOpencode   = "opencode"
@@ -35,6 +35,14 @@ const (
 	taskKindCodex      = "codex"
 	taskKindPiAgent    = "pi-agent"
 )
+
+var scheduleLocation = func() *time.Location {
+	location, err := time.LoadLocation(scheduleTimeZone)
+	if err != nil {
+		panic(fmt.Sprintf("load scheduler timezone %q: %v", scheduleTimeZone, err))
+	}
+	return location
+}()
 
 type args struct {
 	once        bool
@@ -463,12 +471,12 @@ func parseCronRange(expr string, min int, max int) (int, int, error) {
 }
 
 func (s cronSchedule) matches(t time.Time) bool {
-	utc := t.UTC()
-	return s.minute.values[utc.Minute()] &&
-		s.hour.values[utc.Hour()] &&
-		s.dom.values[utc.Day()] &&
-		s.month.values[int(utc.Month())] &&
-		s.dow.values[int(utc.Weekday())]
+	local := t.In(scheduleLocation)
+	return s.minute.values[local.Minute()] &&
+		s.hour.values[local.Hour()] &&
+		s.dom.values[local.Day()] &&
+		s.month.values[int(local.Month())] &&
+		s.dow.values[int(local.Weekday())]
 }
 
 func runIteration(parsedArgs args, paths repoPaths) error {
@@ -524,14 +532,6 @@ func runIteration(parsedArgs args, paths repoPaths) error {
 	}
 	log.Printf("[task-loop] %s due runs: %s", formatTime(now), strings.Join(labels, ", "))
 
-	resolvedModel := ""
-	getModel := func() string {
-		if resolvedModel == "" {
-			resolvedModel = resolveModel(parsedArgs.model, paths.repoRoot)
-		}
-		return resolvedModel
-	}
-
 	for _, run := range due {
 		if parsedArgs.dryRun {
 			logDryRun(run, now)
@@ -549,7 +549,7 @@ func runIteration(parsedArgs args, paths repoPaths) error {
 
 		log.Printf("[task-loop] running: %s scheduled_for=%s", run.task.ID, formatTime(run.scheduledFor))
 		started := time.Now().UTC()
-		err = executeTask(run.task, getModel, run.scheduledFor, paths.repoRoot)
+		err = executeTask(run.task, parsedArgs.model, run.scheduledFor, paths.repoRoot)
 		finished := time.Now().UTC()
 		durationMs := int(finished.Sub(started).Milliseconds())
 		if err != nil {
@@ -708,7 +708,7 @@ func logDryRun(run candidateRun, now time.Time) {
 	log.Printf("[task-loop] dry-run %s scheduled_for=%s now=%s (%s) — %s", run.task.ID, formatTime(run.scheduledFor), formatTime(now), run.task.Kind, detail)
 }
 
-func executeTask(t task, getModel func() string, scheduledFor time.Time, repoRoot string) error {
+func executeTask(t task, defaultModel string, scheduledFor time.Time, repoRoot string) error {
 	if t.Kind == taskKindShell {
 		cmd := applyTaskPlaceholders(t.Command, scheduledFor)
 		if strings.TrimSpace(cmd) == "" {
@@ -738,7 +738,7 @@ func executeTask(t task, getModel func() string, scheduledFor time.Time, repoRoo
 		}
 		model := strings.TrimSpace(t.Model)
 		if model == "" {
-			model = getModel()
+			model = defaultModel
 		}
 		args := opencodeArgs(instruction, model, t.Thinking)
 		result := runCommand("opencode", args, repoRoot)
@@ -821,28 +821,6 @@ func runCommandWithEnv(command string, commandArgs []string, cwd string, env []s
 	return commandResult{code: code, stdout: stdout.String(), stderr: stderr.String()}
 }
 
-func resolveModel(preferred string, repoRoot string) string {
-	list := runCommand("opencode", []string{"models"}, repoRoot)
-	if list.code != 0 {
-		return preferred
-	}
-	models := map[string]bool{}
-	for _, line := range strings.Split(list.stdout, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			models[line] = true
-		}
-	}
-	if models[preferred] {
-		return preferred
-	}
-	if preferred == defaultModel && models[fallbackModel] {
-		log.Printf("[task-loop] model fallback: %s -> %s", defaultModel, fallbackModel)
-		return fallbackModel
-	}
-	return preferred
-}
-
 func shellCommandAllowed(cmd string) bool {
 	normalized := strings.TrimSpace(cmd)
 	return strings.HasPrefix(normalized, "./scripts/") ||
@@ -902,7 +880,8 @@ func splitShellWords(command string) ([]string, error) {
 }
 
 func applyTaskPlaceholders(text string, scheduledFor time.Time) string {
-	return strings.ReplaceAll(strings.ReplaceAll(text, "YYYY-MM-DD", scheduledFor.UTC().Format("2006-01-02")), "YYYY-Www", isoWeek(scheduledFor.UTC()))
+	local := scheduledFor.In(scheduleLocation)
+	return strings.ReplaceAll(strings.ReplaceAll(text, "YYYY-MM-DD", local.Format("2006-01-02")), "YYYY-Www", isoWeek(local))
 }
 
 func isoWeek(t time.Time) string {

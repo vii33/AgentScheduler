@@ -26,12 +26,36 @@ func TestMatchingSlotsFindsDelayedCronSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	slots := matchingSlots(schedule, mustTime(t, "2026-03-07T23:10:00Z"), mustTime(t, "2026-03-07T23:20:00Z"))
+	slots := matchingSlots(schedule, mustTime(t, "2026-03-07T22:10:00Z"), mustTime(t, "2026-03-07T22:20:00Z"))
 	if len(slots) != 1 {
 		t.Fatalf("expected one slot, got %d", len(slots))
 	}
-	if got := formatTime(slots[0]); got != "2026-03-07T23:15:00Z" {
-		t.Fatalf("expected delayed slot at 23:15, got %s", got)
+	if got := formatTime(slots[0]); got != "2026-03-07T22:15:00Z" {
+		t.Fatalf("expected delayed Berlin slot at 23:15, got %s", got)
+	}
+}
+
+func TestMatchingSlotsUsesEuropeBerlinAcrossDaylightSavingTime(t *testing.T) {
+	schedule, err := parseCron("20 8 * * 1-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	winterSlots := matchingSlots(schedule, mustTime(t, "2026-01-12T07:15:00Z"), mustTime(t, "2026-01-12T07:25:00Z"))
+	if len(winterSlots) != 1 || formatTime(winterSlots[0]) != "2026-01-12T07:20:00Z" {
+		t.Fatalf("expected 08:20 CET slot, got %v", winterSlots)
+	}
+
+	summerSlots := matchingSlots(schedule, mustTime(t, "2026-08-10T06:15:00Z"), mustTime(t, "2026-08-10T06:25:00Z"))
+	if len(summerSlots) != 1 || formatTime(summerSlots[0]) != "2026-08-10T06:20:00Z" {
+		t.Fatalf("expected 08:20 CEST slot, got %v", summerSlots)
+	}
+}
+
+func TestTaskPlaceholdersUseEuropeBerlinBusinessDate(t *testing.T) {
+	got := applyTaskPlaceholders("date=YYYY-MM-DD week=YYYY-Www", mustTime(t, "2026-08-09T22:30:00Z"))
+	if want := "date=2026-08-10 week=2026-W33"; got != want {
+		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
 
@@ -106,10 +130,10 @@ func TestParseCronTreatsSevenAsSunday(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !schedule.matches(mustTime(t, "2026-03-08T09:00:00Z")) {
+	if !schedule.matches(mustTime(t, "2026-03-08T08:00:00Z")) {
 		t.Fatal("expected day-of-week 7 to match Sunday")
 	}
-	if schedule.matches(mustTime(t, "2026-03-09T09:00:00Z")) {
+	if schedule.matches(mustTime(t, "2026-03-09T08:00:00Z")) {
 		t.Fatal("did not expect day-of-week 7 to match Monday")
 	}
 }

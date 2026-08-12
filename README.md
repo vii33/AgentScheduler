@@ -41,17 +41,18 @@ All task configuration lives in `crons/tasks.yaml`. Runtime history is tracked i
 
 ## Task Definitions
 
-Defined in `crons/tasks.yaml`. Each task has an `id`, `enabled` flag, 5-field cron `schedule`, optional missed-run policy, `kind`, and either a shell `command` or an agent `instruction`. Supported agent kinds are `opencode`, `copilot-cli`, `claude`, `codex`, and `pi-agent`.
+Defined in `crons/tasks.yaml`. Each task has an `id`, `enabled` flag, 5-field cron `schedule`, optional missed-run policy, `kind`, and either a shell `command` or an agent `instruction`. Supported agent kinds are `opencode`, `copilot-cli`, `claude`, `codex`, and `pi-agent`. All schedules and date placeholders use `Europe/Berlin` time; runtime timestamps remain stored in UTC.
+
+> **Daylight-saving time:** Schedules follow Berlin wall-clock time. When clocks move back in autumn, a task scheduled during the repeated `02:00`–`02:59` hour runs twice—once for each corresponding UTC slot. When clocks move forward in spring, a task scheduled during the skipped `02:00`–`02:59` hour does not run. Avoid that hour for tasks that must run exactly once on every calendar day.
 
 Agent instruction models:
 
-- `kind: opencode` keeps the existing preferred model: `zen/minimax2.5-free`.
-- Opencode automatically falls back to `opencode/minimax-m2.5-free` when `zen` is not configured and the fallback model is available.
+- `kind: opencode` uses the GitHub Copilot model `github-copilot/gpt-5.4-mini` by default.
 - Override Opencode manually with `OPENCODE_TASK_MODEL=provider/model`, `--model`, or a task-level `model` field.
 - For `kind: opencode`, set task-level `thinking: medium` to pass Opencode's provider-specific reasoning effort as `--variant medium`.
 - Override other agent kinds with a task-level `model` field or the matching environment variable: `COPILOT_MODEL`, `CLAUDE_TASK_MODEL`, `CODEX_TASK_MODEL`, or `PI_AGENT_TASK_MODEL`.
 
-Example Opencode task using GPT-5.5 with medium thinking effort:
+Example Opencode task using GPT-5.5:
 
 ```yaml
 tasks:
@@ -65,6 +66,12 @@ tasks:
     instruction: |
       Review the current project notes and propose the three highest-impact tasks for this week.
 ```
+
+Missed-run policies control what happens if the scheduler was asleep or offline at the scheduled time:
+
+- `run-latest` runs only the newest missed slot. This is the default and is usually best for AI tasks.
+- `skip` ignores old missed slots and only runs if the scheduled time is still within the current scheduler polling window.
+- `catch-up` runs every missed slot in order. Use this for jobs where every period matters, such as backups or accounting exports; avoid it for normal agent tasks unless backlog processing is intentional.
 
 > **Note:** `cmd/task-loop` executes `kind: shell` tasks as allowlisted local script commands. Agent tasks are direct binary invocations, not arbitrary shell strings. Each CLI must be installed and authenticated separately.
 
@@ -98,7 +105,7 @@ Task action execution model:
 - `kind: copilot-cli`, `claude`, `codex`, and `pi-agent` send the rendered `instruction` to the matching local CLI in non-interactive mode.
 - `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks. Use task-level `model` or the per-agent environment variables for other agent kinds.
 - `thinking` is supported for `kind: opencode` tasks and maps to Opencode's `--variant` flag, for example `thinking: medium`.
-- The preferred Opencode task model is `zen/minimax2.5-free`; when that model is unavailable and `opencode/minimax-m2.5-free` is configured, the scheduler falls back automatically.
+- The preferred Opencode task model is `github-copilot/gpt-5.4-mini`.
 
 ---
 
@@ -151,7 +158,7 @@ The fastest way to try AgentScheduler is a GitHub Codespace: a cloud VM with eve
 | `OPENCODE_PORT` | `4096` | Opencode server port |
 | `OPENCODE_PASSWORD` | _(none)_ | Optional HTTP basic-auth password |
 | `OPENCODE_USERNAME` | `opencode` | HTTP basic-auth username |
-| `OPENCODE_TASK_MODEL` | `zen/minimax2.5-free` | Default model for `kind: opencode` tasks |
+| `OPENCODE_TASK_MODEL` | `github-copilot/gpt-5.4-mini` | Default model for `kind: opencode` tasks |
 | `COPILOT_MODEL` | _(CLI default)_ | Default model for `kind: copilot-cli` tasks |
 | `CLAUDE_TASK_MODEL` | _(CLI default)_ | Default model for `kind: claude` tasks |
 | `CODEX_TASK_MODEL` | _(CLI default)_ | Default model for `kind: codex` tasks |
@@ -177,6 +184,7 @@ The Go test suite covers cron slot matching, missed-run policy selection, SQLite
 ## Roadmap
 
 - [ ] Add a friendly task status command on top of `agentscheduler.db`.
+- [ ] Add an Agent Brain session-review task that calls `memory_search` and `memory_create` for durable OpenCode session learnings.
 - [ ] Add bounded catch-up limits for tasks with `missed: catch-up`.
 - [ ] Add structured scheduler logs and task-level metrics.
 - [ ] Add artifact retention and cleanup controls for generated outputs.

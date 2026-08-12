@@ -109,7 +109,7 @@ func TestRunIterationRecordsSuccessfulShellTask(t *testing.T) {
 		"record.sh": "#!/usr/bin/env bash\nset -euo pipefail\necho ran >> runs.log\n",
 	})
 
-	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}, paths)
+	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T22:15:00Z"}, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,10 +126,10 @@ func TestRunIterationRecordsSuccessfulShellTask(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("expected one task_runs row, got %d", len(runs))
 	}
-	if runs[0].taskID != "record-success" || runs[0].scheduledFor != "2026-03-07T23:15:00Z" || runs[0].status != "success" {
+	if runs[0].taskID != "record-success" || runs[0].scheduledFor != "2026-03-07T22:15:00Z" || runs[0].status != "success" {
 		t.Fatalf("unexpected run row: %+v", runs[0])
 	}
-	if got := readStateValue(t, paths, stateKeyLastChecked); got != "2026-03-07T23:15:00Z" {
+	if got := readStateValue(t, paths, stateKeyLastChecked); got != "2026-03-07T22:15:00Z" {
 		t.Fatalf("expected last_checked_at to advance, got %s", got)
 	}
 }
@@ -145,11 +145,11 @@ func TestRunIterationDoesNotDuplicateRecordedSlot(t *testing.T) {
 `, map[string]string{
 		"record.sh": "#!/usr/bin/env bash\nset -euo pipefail\necho ran >> runs.log\n",
 	})
-	iterationArgs := args{once: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}
+	iterationArgs := args{once: true, pollSeconds: 300, at: "2026-03-07T22:15:00Z"}
 	if err := runIteration(iterationArgs, paths); err != nil {
 		t.Fatal(err)
 	}
-	writeLastCheckedForTest(t, paths, "2026-03-07T23:10:00Z")
+	writeLastCheckedForTest(t, paths, "2026-03-07T22:10:00Z")
 	if err := runIteration(iterationArgs, paths); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestRunIterationRecordsFailedShellTask(t *testing.T) {
 		"fail.sh": "#!/usr/bin/env bash\nset -euo pipefail\necho 'boom failure' >&2\nexit 42\n",
 	})
 
-	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}, paths)
+	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T22:15:00Z"}, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestDryRunDoesNotCreateRuntimeDatabase(t *testing.T) {
 		"record.sh": "#!/usr/bin/env bash\nset -euo pipefail\necho ran >> runs.log\n",
 	})
 
-	err := runIteration(args{once: true, dryRun: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}, paths)
+	err := runIteration(args{once: true, dryRun: true, pollSeconds: 300, at: "2026-03-07T22:15:00Z"}, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestRunIterationRecordsSuccessfulAgentTask(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}, paths)
+	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T22:15:00Z"}, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestRunIterationPassesOpencodeThinkingVariant(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T23:15:00Z"}, paths)
+	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T22:15:00Z"}, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
