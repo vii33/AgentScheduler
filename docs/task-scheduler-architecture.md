@@ -81,12 +81,12 @@ Example:
 
 ```yaml
 tasks:
-  - id: weekday-export-0800
+  - id: daily-export-0800
     enabled: true
     schedule: "0 23 * * *"
     missed: run-latest
     kind: shell
-    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh"
 ```
 
 Important details:
@@ -162,7 +162,7 @@ the session exporter is maintained in `../agentic-memories`.
     schedule: "0 23 * * *"
     missed: run-latest
     kind: shell
-    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh"
 ```
 
 #### Required fields

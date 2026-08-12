@@ -262,7 +262,7 @@ func TestShellAllowlistDoesNotAllowAgentBinaries(t *testing.T) {
 
 func TestShellAllowlistAcceptsSiblingRepositoryScripts(t *testing.T) {
 	for _, command := range []string{
-		"../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD",
+		"../agentic-memories/scripts/export-sessions.sh",
 		"../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD",
 	} {
 		if !shellCommandAllowed(command) {

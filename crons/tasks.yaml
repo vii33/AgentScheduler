@@ -13,19 +13,19 @@ tasks:
     kind: shell
     command: "../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
 
-  - id: weekday-export-0800
+  - id: daily-export-0800
     enabled: false
-    schedule: "0 8 * * 1-5"
+    schedule: "0 8 * * *"
     missed: run-latest
     kind: shell
-    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh"
 
-  - id: weekday-export-1130
+  - id: daily-export-1130
     enabled: false
-    schedule: "30 11 * * 1-5"
+    schedule: "30 11 * * *"
     missed: run-latest
     kind: shell
-    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh"
 
   - id: daily-analysis
     enabled: false
@@ -33,18 +33,17 @@ tasks:
     missed: run-latest
     kind: opencode
     instruction: |
-      Read ../agentic-memories/memory/history/YYYY-MM-DD.md (replace YYYY-MM-DD
-      with today's date).
-      If that file does not exist, skip the memory update entirely: do not write a
-      summary, do not invent one, and do not append anything to
+      Read all JSON files in ../agentic-memories/memory/history/YYYY-MM-DD/ (replace
+      YYYY-MM-DD with yesterday's date in Europe/Berlin). Consider only normalized
+      session files (`.v == 1` and `.source.session_id` present). If that directory
+      does not exist or contains no such files, skip the memory update entirely: do
+      not invent a summary and do not append anything to
       ../agentic-memories/MEMORY.md. Instead, create the logs directory if needed
       and append a line to ../agentic-memories/logs/daily-analysis.log noting the
-      skip (UTC timestamp, the missing date, and the reason "no history file").
+      skip (UTC timestamp, the missing date, and the reason "no history files").
       Extract key decisions, lessons learned, and user preferences.
       Append them as dated entries to ../agentic-memories/MEMORY.md under the
       correct headings.
-      Write a one-paragraph plain-English summary into the ## Summary section of
-      today's history file.
 
   - id: weekly-review
     enabled: false
@@ -52,8 +51,8 @@ tasks:
     missed: run-latest
     kind: opencode
     instruction: |
-      Read the past 7 days of ../agentic-memories/memory/history/ files (files
-      named YYYY-MM-DD.md).
+      Read the past 7 days of ../agentic-memories/memory/history/ directories
+      (directories named YYYY-MM-DD, containing per-session JSON files).
       Produce a short weekly summary covering key decisions, patterns, and lessons.
       Save the summary to ../agentic-memories/memory/knowledge/weekly-YYYY-Www.md
       (replace YYYY-Www with the current ISO week).

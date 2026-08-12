@@ -35,8 +35,8 @@ implementation and data do not belong here.
 ## Agent Integration
 
 Agent tasks invoke the configured local CLI directly. The optional session
-export task belongs to `../agentic-memories` and uses Opencode's local HTTP API;
-that repository owns its health check and connection settings.
+export task belongs to `../agentic-memories` and uses the local OpenCode CLI;
+that repository owns its export and normalization behavior.
 
 ---
 
