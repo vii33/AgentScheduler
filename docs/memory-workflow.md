@@ -178,6 +178,19 @@ Example:
 
 For the full task schema and scheduler details, see [`docs/task-scheduler-architecture.md`](task-scheduler-architecture.md#how-to-create-a-new-task).
 
+## TODO: Agent Brain session-review integration
+
+Add a scheduled or external session-review task that loads OpenCode sessions and writes durable learnings to Agent Brain.
+
+Reviewer instructions:
+
+- At the end of reviewing an OpenCode session, decide whether the session produced durable memory.
+- If yes, call Agent Brain `memory_create`; optionally call `memory_search` first to avoid duplicates.
+- Save only stable project facts, decisions, reusable analysis findings, architecture/convention/gotchas, and user preferences.
+- Do not save raw transcripts, temporary chatter, secrets/tokens/personal data, one-off commands unless reusable, or uncertain guesses.
+- Use `source: "session-review"`, `scope: "workspace"`, `workspace_id` from the git repo/workspace slug, lowercase OS `user_id`, and the OpenCode `session_id` when available.
+- Prefer producing structured memory candidates first, then let the wrapper/tool executor perform `memory_search` and `memory_create`.
+
 ## FAQ
 
 ### Why do daily and weekly memory both exist?
