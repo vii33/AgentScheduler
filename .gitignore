@@ -1,9 +1,6 @@
 # Environment — never commit secrets
 .env
 
-# Node.js dependencies
-node_modules/
-
 # Machine-managed scheduler state (created automatically on first run)
 task-state.json
 agentscheduler.db
@@ -12,9 +9,6 @@ task-loop.lock
 /task-loop
 logs/*.log
 launchd/*.plist
-
-# Generated daily session export files (optional: track them if you want history in git)
-# memory/history/*.md
 
 # Editor / OS
 .DS_Store

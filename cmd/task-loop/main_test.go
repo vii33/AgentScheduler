@@ -259,3 +259,26 @@ func TestShellAllowlistDoesNotAllowAgentBinaries(t *testing.T) {
 		}
 	}
 }
+
+func TestShellAllowlistAcceptsSiblingRepositoryScripts(t *testing.T) {
+	for _, command := range []string{
+		"../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD",
+		"../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD",
+	} {
+		if !shellCommandAllowed(command) {
+			t.Fatalf("expected shell allowlist to accept %q", command)
+		}
+	}
+}
+
+func TestShellAllowlistRejectsUnapprovedSiblingPaths(t *testing.T) {
+	for _, command := range []string{
+		"../agentic-memories/MEMORY.md",
+		"../../other-repository/scripts/run.sh",
+		"../teams-daily-bot/config/live.json",
+	} {
+		if shellCommandAllowed(command) {
+			t.Fatalf("expected shell allowlist to reject %q", command)
+		}
+	}
+}

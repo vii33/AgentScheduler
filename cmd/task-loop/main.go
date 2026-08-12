@@ -827,7 +827,9 @@ func shellCommandAllowed(cmd string) bool {
 		strings.HasPrefix(normalized, "scripts/") ||
 		strings.HasPrefix(normalized, "bash scripts/") ||
 		strings.HasPrefix(normalized, "node scripts/") ||
-		strings.HasPrefix(normalized, "go run ./cmd/")
+		strings.HasPrefix(normalized, "go run ./cmd/") ||
+		strings.HasPrefix(normalized, "../agentic-memories/scripts/") ||
+		strings.HasPrefix(normalized, "../teams-daily-bot/scripts/")
 }
 
 func splitShellWords(command string) ([]string, error) {

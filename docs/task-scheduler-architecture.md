@@ -2,7 +2,7 @@
 
 This document covers AgentScheduler's Go task runner: how tasks are stored, how to create a new task, how missed schedules are handled, and how runtime history is recorded in SQLite.
 
-For the memory workflow built on top of these task primitives, see [`docs/memory-workflow.md`](memory-workflow.md).
+The memory workflow is maintained in the sibling [`../agentic-memories`](../../agentic-memories) repository.
 
 ## Quick answer map
 
@@ -29,7 +29,7 @@ flowchart LR
     DB[agentscheduler.db\ntask_runs + scheduler_state]
     Lock[task-loop.lock\ncontinuous-mode owner]
     Server[Opencode CLI]
-    Export[scripts/export-sessions.sh]
+    External[Sibling repository scripts]
     Artifact[Task output files]
 
     User --> Scheduler
@@ -37,8 +37,8 @@ flowchart LR
     Scheduler --> Tasks
     Scheduler --> DB
     Scheduler --> Server
-    Scheduler --> Export
-    Export --> Artifact
+    Scheduler --> External
+    External --> Artifact
     Scheduler --> Artifact
 ```
 
@@ -81,12 +81,12 @@ Example:
 
 ```yaml
 tasks:
-  - id: daily-export
+  - id: weekday-export-0800
     enabled: true
     schedule: "0 23 * * *"
     missed: run-latest
     kind: shell
-    command: "./scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
 ```
 
 Important details:
@@ -153,6 +153,8 @@ Each agent CLI must be installed and authenticated separately. This runner only 
 #### Shell task
 
 Use `kind: shell` when the task should run an allowlisted local script command.
+Feature-specific scripts may live in approved sibling repositories; for example,
+the session exporter is maintained in `../agentic-memories`.
 
 ```yaml
   - id: export-sessions
@@ -160,7 +162,7 @@ Use `kind: shell` when the task should run an allowlisted local script command.
     schedule: "0 23 * * *"
     missed: run-latest
     kind: shell
-    command: "./scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
 ```
 
 #### Required fields
@@ -201,7 +203,7 @@ Strong default: use `run-latest`. Catching up every missed task after a week off
 8. Run one real scheduler pass only when the expected task slot should be due.
 9. Inspect recent attempts with `sqlite3 agentscheduler.db 'select task_id, scheduled_for, status, error from task_runs order by started_at desc limit 20;'`.
 
-Built-in tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves against the `scheduled_for` slot in `Europe/Berlin` time at run time. `scripts/export-sessions.sh` uses the same timezone for its default date and session-date filtering.
+Tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves against the `scheduled_for` slot in `Europe/Berlin` time at run time. Feature-specific scripts in sibling repositories should use the same timezone for their date handling.
 
 ### How to run the scheduler
 
@@ -385,5 +387,4 @@ Remaining scheduler hardening priorities:
 | Runtime task history | `agentscheduler.db` |
 | Scheduler implementation | `cmd/task-loop/main.go` |
 | Continuous scheduler lock | `task-loop.lock` |
-| Session export script | `scripts/export-sessions.sh` |
-| Memory workflow guide | `docs/memory-workflow.md` |
+| External feature scripts | Sibling repositories referenced by `crons/tasks.yaml` |

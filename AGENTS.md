@@ -1,67 +1,20 @@
-# AGENTS.md — Rules of Engagement
+# AGENTS.md — Scheduler Rules of Engagement
 
-_Read at the start of every session. Covers memory, security, Opencode integration,
-task execution, and operational standards._
-
----
-
-## File Loading Order
-
-Load these files on every session start, in order:
-
-1. `AGENTS.md` — this file (always)
-2. `MEMORY.md` — synthesised preferences (always)
-3. `memory/history/<today>.md` — today's session export if it exists (optional)
+_Read this before working on the AgentScheduler repository._
 
 ---
 
-## Memory System
+## Scope
 
-Memory does not survive sessions on its own — files are the only way to persist knowledge.
+This repository contains the generic Go scheduler, task configuration, and
+runtime-history implementation. Feature-specific scripts and data live in their
+own sibling repositories:
 
-### Two layers
+- `../agentic-memories` — session export and memory files
+- `../teams-daily-bot` — daily attendee reconciliation
 
-| Layer | File | Purpose | When loaded |
-|---|---|---|---|
-| **Synthesised** | `MEMORY.md` | Distilled patterns, preferences, decisions | Every session |
-| **Daily raw** | `memory/history/YYYY-MM-DD.md` | Full session export for that day | On demand / by cron |
-
-### On session start
-1. Read `MEMORY.md` — load all synthesised facts.
-2. Check `memory/history/<today>.md` if it exists — skim for recent context.
-
-### During a session
-- When the user states a preference, decision, or fact worth keeping, **append it to `MEMORY.md`**
-  under the relevant heading using this format:
-  ```
-  - YYYY-MM-DD: <concise fact>
-  ```
-- Never delete entries — strike through outdated ones with `~~text~~` instead.
-- Keep each entry to one line. Move longer notes to `memory/knowledge/<topic>.md`.
-
-### Memory rules
-- Never store secrets, credentials, or tokens in any memory file.
-- `memory/facts.md` is a lightweight scratch pad for quick reminders that don't fit `MEMORY.md`.
-
----
-
-## Session Export and Analysis
-
-Daily session exports give AgentScheduler a raw record of what was worked on.
-
-### Export (`daily-export` cron)
-- Run `scripts/export-sessions.sh` nightly.
-- Fetches all of today's sessions from the Opencode API and writes them to
-  `memory/history/YYYY-MM-DD.md`.
-- Each session section includes: title, model, timestamps, and the full conversation.
-
-### Analysis (`daily-analysis` cron)
-- Runs after the export.
-- Read `memory/history/YYYY-MM-DD.md`.
-- Extract: key decisions, lessons, follow-ups, and user preferences.
-- Append them as dated entries to `MEMORY.md` under the correct headings.
-- Write a one-paragraph plain-English summary into the `## Summary` section at the
-  bottom of `memory/history/YYYY-MM-DD.md`.
+The scheduler may reference those repositories from `crons/tasks.yaml`, but their
+implementation and data do not belong here.
 
 ---
 
@@ -79,16 +32,11 @@ Daily session exports give AgentScheduler a raw record of what was worked on.
 
 ---
 
-## Opencode Integration
+## Agent Integration
 
-AgentScheduler communicates with Opencode via its local HTTP server (default: `http://127.0.0.1:4096`).
-
-**Before any API call**, verify the server is healthy:
-```
-GET /global/health  →  { "healthy": true }
-```
-
-If the server is unreachable, tell the user and stop. Do not retry silently.
+Agent tasks invoke the configured local CLI directly. The optional session
+export task belongs to `../agentic-memories` and uses Opencode's local HTTP API;
+that repository owns its health check and connection settings.
 
 ---
 

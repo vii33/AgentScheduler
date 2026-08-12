@@ -1,7 +1,5 @@
 # AgentScheduler
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vii33/AgentScheduler)
-
 AgentScheduler is a Markdown-configured Go task runner for local automations and CLI-agent workflows. It runs scheduled tasks from `crons/tasks.yaml`, where each task can run either an allowlisted shell command or an instruction through Opencode, Copilot CLI, Claude, Codex, or Pi.
 
 ---
@@ -26,13 +24,11 @@ agentscheduler/
 ├── crons/
 │   └── tasks.yaml     ← Cron task definitions (schedule, kind, command/instruction)
 ├── scripts/
-│   └── export-sessions.sh   ← Built-in export helper used by scheduled tasks
+│   └── run-task-loop.sh      ← Continuous scheduler launcher
 ├── cmd/
 │   └── task-loop/           ← Go scheduler that reads tasks.yaml and writes agentscheduler.db
 ├── docs/
 │   └── task-scheduler-architecture.md ← Task creation, scheduler behavior, runtime state, and FAQ
-├── agentscheduler.db        ← Machine-managed SQLite task run history (generated)
-└── task-loop.lock     ← Continuous scheduler lock with PID and start timestamp (generated)
 ```
 
 All task configuration lives in `crons/tasks.yaml`. Runtime history is tracked in `agentscheduler.db` with SQLite so task status queries stay simple and unambiguous.
@@ -101,6 +97,7 @@ Runtime history is tracked in `agentscheduler.db`. This SQLite database is machi
 Task action execution model:
 
 - `kind: shell` runs the configured `command` after `cmd/task-loop` applies task placeholders, verifies the command against the shell allowlist, and rejects unsafe shell syntax.
+- Approved feature scripts run from sibling repositories referenced by `crons/tasks.yaml`, including `../agentic-memories/scripts/` and `../teams-daily-bot/scripts/`.
 - `kind: opencode` sends the rendered `instruction` to `opencode run`.
 - `kind: copilot-cli`, `claude`, `codex`, and `pi-agent` send the rendered `instruction` to the matching local CLI in non-interactive mode.
 - `OPENCODE_TASK_MODEL` or `--model` selects the default model only for `kind: opencode` tasks. Use task-level `model` or the per-agent environment variables for other agent kinds.
@@ -109,10 +106,11 @@ Task action execution model:
 
 ---
 
-## Further Documentation
+## External feature repositories
 
 - [`docs/task-scheduler-architecture.md`](docs/task-scheduler-architecture.md) for task storage, task creation, scheduler behavior, SQLite runtime history, missed-run handling, Mermaid diagrams, and the scheduler FAQ.
-- [`docs/memory-workflow.md`](docs/memory-workflow.md) for the Memory System example built on the scheduler primitives.
+- [`../agentic-memories`](../agentic-memories) contains the memory files and session-export implementation when checked out as a sibling repository.
+- [`../teams-daily-bot`](../teams-daily-bot) contains the daily attendee reconciliation implementation when checked out as a sibling repository.
 
 ---
 
@@ -120,33 +118,7 @@ Task action execution model:
 
 - Go installed for `go run ./cmd/task-loop`.
 - At least one supported agent CLI installed and authenticated for agent tasks: [Opencode](https://opencode.ai/docs/cli/), GitHub Copilot CLI, Claude Code, OpenAI Codex CLI, or Pi.
-- For tasks that use Opencode's HTTP API, the Opencode HTTP server must be running:
-
-  ```bash
-  opencode serve --port 4096
-  ```
-
----
-
-## Testing in GitHub Codespaces
-
-The fastest way to try AgentScheduler is a GitHub Codespace: a cloud VM with everything pre-installed.
-
-1. Click the **Open in Codespaces** badge above (or go to **Code → Codespaces → New codespace**).
-2. The container installs `opencode`, `curl`, and `jq` automatically.
-3. Inside the terminal:
-
-   ```bash
-   # Run one scheduler pass without side effects
-   go run ./cmd/task-loop --once --dry-run
-
-   # Start the Opencode server for tasks that call its HTTP API
-   opencode serve --port 4096
-   ```
-
-4. Port `4096` is automatically forwarded, so you can also open `http://localhost:4096/global/health` in the Codespace browser to verify the server is up.
-
-> **Note:** Opencode requires an LLM provider API key. Set it up with `opencode` on first run. It will guide you through provider selection.
+- The Opencode HTTP server is additionally required by the optional session-export task; see `../agentic-memories` for its configuration.
 
 ---
 
@@ -154,10 +126,6 @@ The fastest way to try AgentScheduler is a GitHub Codespace: a cloud VM with eve
 
 | Environment Variable | Default | Description |
 |---|---|---|
-| `OPENCODE_HOST` | `127.0.0.1` | Opencode server hostname |
-| `OPENCODE_PORT` | `4096` | Opencode server port |
-| `OPENCODE_PASSWORD` | _(none)_ | Optional HTTP basic-auth password |
-| `OPENCODE_USERNAME` | `opencode` | HTTP basic-auth username |
 | `OPENCODE_TASK_MODEL` | `github-copilot/gpt-5.4-mini` | Default model for `kind: opencode` tasks |
 | `COPILOT_MODEL` | _(CLI default)_ | Default model for `kind: copilot-cli` tasks |
 | `CLAUDE_TASK_MODEL` | _(CLI default)_ | Default model for `kind: claude` tasks |

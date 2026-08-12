@@ -4,28 +4,28 @@ tasks:
     schedule: "20 8 * * 1-5"
     missed: skip
     kind: shell
-    command: "./scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
+    command: "../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
 
   - id: weekday-daily-attendees-1500
     enabled: true
     schedule: "0 15 * * 1-5"
     missed: skip
     kind: shell
-    command: "./scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
+    command: "../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
 
   - id: weekday-export-0800
     enabled: false
     schedule: "0 8 * * 1-5"
     missed: run-latest
     kind: shell
-    command: "./scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
 
   - id: weekday-export-1130
     enabled: false
     schedule: "30 11 * * 1-5"
     missed: run-latest
     kind: shell
-    command: "./scripts/export-sessions.sh YYYY-MM-DD"
+    command: "../agentic-memories/scripts/export-sessions.sh YYYY-MM-DD"
 
   - id: daily-analysis
     enabled: false
@@ -33,14 +33,18 @@ tasks:
     missed: run-latest
     kind: opencode
     instruction: |
-      Read memory/history/YYYY-MM-DD.md (replace YYYY-MM-DD with today's date).
+      Read ../agentic-memories/memory/history/YYYY-MM-DD.md (replace YYYY-MM-DD
+      with today's date).
       If that file does not exist, skip the memory update entirely: do not write a
-      summary, do not invent one, and do not append anything to MEMORY.md. Instead,
-      append a line to logs/daily-analysis.log noting the skip (UTC timestamp, the
-      missing date, and the reason "no history file").
+      summary, do not invent one, and do not append anything to
+      ../agentic-memories/MEMORY.md. Instead, create the logs directory if needed
+      and append a line to ../agentic-memories/logs/daily-analysis.log noting the
+      skip (UTC timestamp, the missing date, and the reason "no history file").
       Extract key decisions, lessons learned, and user preferences.
-      Append them as dated entries to MEMORY.md under the correct headings.
-      Write a one-paragraph plain-English summary into the ## Summary section of today's history file.
+      Append them as dated entries to ../agentic-memories/MEMORY.md under the
+      correct headings.
+      Write a one-paragraph plain-English summary into the ## Summary section of
+      today's history file.
 
   - id: weekly-review
     enabled: false
@@ -48,9 +52,11 @@ tasks:
     missed: run-latest
     kind: opencode
     instruction: |
-      Read the past 7 days of memory/history/ files (files named YYYY-MM-DD.md).
+      Read the past 7 days of ../agentic-memories/memory/history/ files (files
+      named YYYY-MM-DD.md).
       Produce a short weekly summary covering key decisions, patterns, and lessons.
-      Save the summary to memory/knowledge/weekly-YYYY-Www.md (replace YYYY-Www with the current ISO week).
+      Save the summary to ../agentic-memories/memory/knowledge/weekly-YYYY-Www.md
+      (replace YYYY-Www with the current ISO week).
 
   - id: obsidian-daily-note-review
     enabled: false
