@@ -28,12 +28,13 @@ const (
 	dryRunInstructionPreviewLength = 80
 	scheduleTimeZone               = "Europe/Berlin"
 
-	taskKindShell      = "shell"
-	taskKindOpencode   = "opencode"
-	taskKindCopilotCLI = "copilot-cli"
-	taskKindClaude     = "claude"
-	taskKindCodex      = "codex"
-	taskKindPiAgent    = "pi-agent"
+	taskKindShell         = "shell"
+	taskKindOpencode      = "opencode"
+	taskKindCopilotCLI    = "copilot-cli"
+	taskKindClaude        = "claude"
+	taskKindCodex         = "codex"
+	taskKindPiAgent       = "pi-agent"
+	qmdMaintenanceCommand = "qmd update && qmd embed"
 )
 
 var scheduleLocation = func() *time.Location {
@@ -717,6 +718,15 @@ func executeTask(t task, defaultModel string, scheduledFor time.Time, repoRoot s
 		if !shellCommandAllowed(cmd) {
 			return fmt.Errorf("rejected unsafe shell command: %s", cmd)
 		}
+		if strings.TrimSpace(cmd) == qmdMaintenanceCommand {
+			for _, args := range [][]string{{"update"}, {"embed"}} {
+				result := runCommand("qmd", args, repoRoot)
+				if result.code != 0 {
+					return fmt.Errorf("QMD %s failed: %s", args[0], firstNonEmpty(result.stderr, result.stdout))
+				}
+			}
+			return nil
+		}
 		tokens, err := splitShellWords(cmd)
 		if err != nil {
 			return err
@@ -823,7 +833,8 @@ func runCommandWithEnv(command string, commandArgs []string, cwd string, env []s
 
 func shellCommandAllowed(cmd string) bool {
 	normalized := strings.TrimSpace(cmd)
-	return strings.HasPrefix(normalized, "./scripts/") ||
+	return normalized == qmdMaintenanceCommand ||
+		strings.HasPrefix(normalized, "./scripts/") ||
 		strings.HasPrefix(normalized, "scripts/") ||
 		strings.HasPrefix(normalized, "bash scripts/") ||
 		strings.HasPrefix(normalized, "node scripts/") ||

@@ -134,6 +134,75 @@ func TestRunIterationRecordsSuccessfulShellTask(t *testing.T) {
 	}
 }
 
+func TestRunIterationRunsAllowlistedQMDMaintenanceInOrder(t *testing.T) {
+	paths := testRepo(t, `tasks:
+  - id: daily-qmd-update-embed
+    enabled: true
+    schedule: "0 12 * * *"
+    missed: run-latest
+    kind: shell
+    command: "qmd update && qmd embed"
+`, nil)
+	binDir := filepath.Join(paths.repoRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	qmd := filepath.Join(binDir, "qmd")
+	if err := os.WriteFile(qmd, []byte("#!/usr/bin/env bash\necho \"$1\" >> runs.log\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T11:00:00Z"}, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(paths.repoRoot, "runs.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(content)); got != "update\nembed" {
+		t.Fatalf("expected QMD maintenance commands in order, got %q", got)
+	}
+}
+
+func TestRunIterationStopsQMDMaintenanceWhenUpdateFails(t *testing.T) {
+	paths := testRepo(t, `tasks:
+  - id: daily-qmd-update-embed
+    enabled: true
+    schedule: "0 12 * * *"
+    missed: run-latest
+    kind: shell
+    command: "qmd update && qmd embed"
+`, nil)
+	binDir := filepath.Join(paths.repoRoot, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	qmd := filepath.Join(binDir, "qmd")
+	if err := os.WriteFile(qmd, []byte("#!/usr/bin/env bash\necho \"$1\" >> runs.log\n[ \"$1\" = update ] && exit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := runIteration(args{once: true, pollSeconds: 300, at: "2026-03-07T11:00:00Z"}, paths); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(paths.repoRoot, "runs.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(content)); got != "update" {
+		t.Fatalf("expected QMD embed to be skipped after update failure, got %q", got)
+	}
+	runs := readRuns(t, paths)
+	if len(runs) != 1 || runs[0].status != "failed" {
+		t.Fatalf("expected a failed QMD task run, got %+v", runs)
+	}
+}
+
 func TestRunIterationDoesNotDuplicateRecordedSlot(t *testing.T) {
 	paths := testRepo(t, `tasks:
   - id: no-duplicate

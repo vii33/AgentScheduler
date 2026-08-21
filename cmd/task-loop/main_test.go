@@ -271,6 +271,15 @@ func TestShellAllowlistAcceptsSiblingRepositoryScripts(t *testing.T) {
 	}
 }
 
+func TestShellAllowlistAcceptsExactQMDMaintenanceCommand(t *testing.T) {
+	if !shellCommandAllowed(qmdMaintenanceCommand) {
+		t.Fatalf("expected shell allowlist to accept %q", qmdMaintenanceCommand)
+	}
+	if shellCommandAllowed("qmd update") {
+		t.Fatal("expected shell allowlist to reject individual QMD commands")
+	}
+}
+
 func TestShellAllowlistRejectsUnapprovedSiblingPaths(t *testing.T) {
 	for _, command := range []string{
 		"../agentic-memories/MEMORY.md",

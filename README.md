@@ -69,7 +69,7 @@ Missed-run policies control what happens if the scheduler was asleep or offline 
 - `skip` ignores old missed slots and only runs if the scheduled time is still within the current scheduler polling window.
 - `catch-up` runs every missed slot in order. Use this for jobs where every period matters, such as backups or accounting exports; avoid it for normal agent tasks unless backlog processing is intentional.
 
-> **Note:** `cmd/task-loop` executes `kind: shell` tasks as allowlisted local script commands. Agent tasks are direct binary invocations, not arbitrary shell strings. Each CLI must be installed and authenticated separately.
+> **Note:** `cmd/task-loop` executes `kind: shell` tasks as allowlisted local script commands. The exact QMD maintenance command `qmd update && qmd embed` is also allowed and runs as two direct invocations in that order. Agent tasks are direct binary invocations, not arbitrary shell strings. Each CLI must be installed and authenticated separately.
 
 For the task schema, task-creation checklist, and scheduler FAQ, see [`docs/task-scheduler-architecture.md`](docs/task-scheduler-architecture.md).
 

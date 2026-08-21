@@ -67,6 +67,7 @@ Scheduled tasks are declared in `crons/tasks.yaml`.
 - Use the `(task_id, scheduled_for)` uniqueness rule to avoid duplicate runs for the same scheduled interval.
 - Apply each task's `missed` policy (`run-latest`, `skip`, or `catch-up`) when the scheduler was offline or delayed.
 - Only failures are reported to the user; successful runs are silent unless the output is the point.
+- Shell tasks execute one allowlisted program directly; they do not run through a shell. The exact QMD maintenance command `qmd update && qmd embed` is allowlisted and executed as two direct QMD invocations in that order. Other QMD commands and shell operators are not allowed in `tasks.yaml`.
 
 ---
 

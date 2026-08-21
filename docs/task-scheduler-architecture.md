@@ -165,6 +165,11 @@ the session exporter is maintained in `../agentic-memories`.
     command: "../agentic-memories/scripts/export-sessions.sh"
 ```
 
+The exact maintenance command `qmd update && qmd embed` is also allowlisted.
+The runner executes `qmd update` and then `qmd embed` directly, stopping if the
+update fails; it does not invoke a shell or permit other QMD commands or shell
+operators.
+
 #### Required fields
 
 | Field | Required | Description |
