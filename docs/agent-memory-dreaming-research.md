@@ -9,11 +9,13 @@ The target environment assumed here is:
 - Markdown/Obsidian as the source of truth
 - existing Daily, project, and knowledge folders
 - frontmatter such as `last_updated` and `summary`
-- lexical retrieval through `ripgrep`
-- ranked retrieval through QMD/BM25
+- exact lexical search through `ripgrep`
+- some form of BM25/full-text candidate retrieval
 - scheduled agent jobs through AgentScheduler
 
-The core conclusion is that this stack already solves most of the storage problem. The missing layer is a disciplined **memory lifecycle**: extraction, reflection, consolidation, promotion, supersession, archival, provenance, and conflict resolution.
+> **Open design question:** QMD is currently available and useful for interactive knowledge search, but it may not be the correct retrieval primitive for the memory subsystem if QMD performs its own internal re-ranking. The architecture proposed here wants control over the final ranker so that BM25, recency, importance, status, scope, provenance, and recall telemetry can be combined deterministically. This may require using a lower-level BM25/FTS library directly instead of taking QMD's final ranking as the base score. See [Section 18](#18-retrieval-architecture-qmd-vs-a-lower-level-bm25-layer).
+
+The core conclusion is that the existing stack already solves most of the storage problem. The missing layer is a disciplined **memory lifecycle**: extraction, reflection, consolidation, promotion, supersession, archival, provenance, conflict resolution, and retrieval telemetry.
 
 ---
 
@@ -71,8 +73,9 @@ The most important design principles are:
 8. **Curated knowledge should not decay merely because it is old.** Recency decay belongs primarily on episodic memory and retrieval ranking.
 9. **Dreaming/reflection should be offline.** Expensive synthesis belongs between sessions, not in the critical request path.
 10. **Markdown can remain canonical.** SQLite, embeddings, or indexes are acceptable as disposable derived state.
+11. **The memory system should own its final ranking.** If an upstream search tool performs opaque or fixed re-ranking, it may be the wrong primitive for telemetry-driven memory ranking.
 
-For AgentScheduler, the most promising architecture is therefore not a new memory database. It is a scheduled **Dreaming Agent over Markdown**.
+For AgentScheduler, the most promising architecture is therefore not a new memory database. It is a scheduled **Dreaming Agent over Markdown**, backed by a retrieval component whose raw scoring remains under our control.
 
 ---
 
@@ -92,7 +95,65 @@ This research is therefore guidance for evolving the existing pipeline rather th
 
 ---
 
-# 2. OpenAI Codex memory pipeline
+# 2. Common memory architecture
+
+The systems researched here differ substantially in implementation, but converge on a small number of layers.
+
+## 2.1 Episodic memory
+
+Episodic memory records what happened:
+
+```text
+session transcript
+daily note
+run output
+observed error
+conversation correction
+```
+
+It is evidence, not necessarily truth.
+
+Properties:
+
+- append-mostly
+- large
+- searchable
+- not always loaded
+- allowed to decay in retrieval ranking
+- should retain provenance and timestamp
+
+## 2.2 Semantic / durable memory
+
+Durable memory records the best current synthesis:
+
+```text
+current architecture
+stable user preference
+accepted decision
+known workflow
+reusable lesson
+project constraint
+```
+
+It is small, curated, and intended to influence future behavior.
+
+## 2.3 Core / hot memory
+
+Some systems additionally keep a tiny always-loaded layer. In AgentScheduler this maps naturally to a deliberately small `MEMORY.md` or routing summary.
+
+## 2.4 Reflection / dreaming
+
+The missing middle is a process that decides how episodic evidence changes durable knowledge:
+
+```text
+evidence -> candidates -> reflections -> consolidation -> durable knowledge
+```
+
+That process is where most memory quality is won or lost.
+
+---
+
+# 3. OpenAI Codex memory pipeline
 
 OpenAI's Codex repository contains public memory-writing prompts and implementation documentation. This is especially valuable because it exposes both the **per-session extraction prompt** and the **global consolidation prompt**.
 
@@ -102,7 +163,7 @@ Primary sources:
 - [Stage-one extraction prompt](https://github.com/openai/codex/blob/main/codex-rs/memories/write/templates/memories/stage_one_system.md)
 - [Phase-two consolidation prompt](https://github.com/openai/codex/blob/main/codex-rs/memories/write/templates/memories/consolidation.md)
 
-## 2.1 Two-phase design
+## 3.1 Two-phase design
 
 Codex separates memory creation into two phases.
 
@@ -147,7 +208,7 @@ rollout_summaries/
 
 The consolidation process is incremental and may make no content changes if nothing meaningful has changed.
 
-## 2.2 What Codex considers high-signal memory
+## 3.2 What Codex considers high-signal memory
 
 The public consolidation prompt prioritizes information that helps future agents:
 
@@ -178,7 +239,7 @@ Implication: verify the concrete routing/config chain before concluding.
 
 This is highly relevant to a Markdown wiki because it argues for retaining enough evidence and wording to make durable guidance inspectable.
 
-## 2.3 Usage and recency in Codex phase-two selection
+## 3.3 Usage and recency in Codex phase-two selection
 
 The Codex memories README documents that phase-two selection does not simply process everything forever.
 
@@ -190,7 +251,7 @@ Eligible stage-one memories are selected using usage information:
 
 This is a second independent signal beyond the LLM's original judgment: **memories that are actually used get priority for consolidation**.
 
-## 2.4 Contradictions and stale guidance
+## 3.4 Contradictions and stale guidance
 
 The phase-two prompt instructs the agent to preserve still-supported guidance, remove stale references, and rewrite or split blocks only when needed. It stresses evidence-based updates, freshness via `updated_at`, and deeper inspection of rollout evidence when overlap, ambiguity, conflict, or staleness must be resolved.
 
@@ -211,7 +272,7 @@ A better conflict decision should consider:
 
 The exact ordering above is a design synthesis rather than a literal Codex scoring formula, but it follows the prompt's evidence, validation, user-preference, recurrence, and `updated_at` guidance.
 
-## 2.5 Key Codex lessons for AgentScheduler
+## 3.5 Key Codex lessons for AgentScheduler
 
 Adopt:
 
@@ -231,7 +292,7 @@ Avoid:
 
 ---
 
-# 3. OpenClaw: dreaming, promotion, retrieval, and provenance
+# 4. OpenClaw: dreaming, promotion, retrieval, and provenance
 
 OpenClaw provides one of the clearest public architectures for background memory consolidation.
 
@@ -243,7 +304,7 @@ Primary sources:
 - [Memory CLI](https://github.com/openclaw/openclaw/blob/main/docs/cli/memory.md)
 - [Memory configuration](https://github.com/openclaw/openclaw/blob/main/docs/reference/memory-config.md)
 
-## 3.1 Memory tiers
+## 4.1 Memory tiers
 
 OpenClaw explicitly separates tiers:
 
@@ -257,7 +318,7 @@ OpenClaw explicitly separates tiers:
 
 The key boundary is between episodic and curated memory. Episodic data does **not** automatically become durable core memory.
 
-## 3.2 Dreaming phases
+## 4.2 Dreaming phases
 
 OpenClaw's dreaming cycle runs:
 
@@ -305,9 +366,9 @@ extract/stage -> reflect -> consolidate
 
 and avoids letting a reflection model mutate the source of truth prematurely.
 
-## 3.3 OpenClaw deep promotion score
+## 4.3 OpenClaw deep promotion score
 
-The current OpenClaw dreaming documentation lists six weighted base signals:
+The OpenClaw dreaming documentation lists six weighted base signals:
 
 | Signal | Weight |
 |---|---:|
@@ -334,40 +395,30 @@ The key conceptual insight is more important than the exact constants:
 
 This is arguably the strongest idea to adopt for a BM25-based memory stack.
 
-## 3.4 Retrieval ranking is not promotion ranking
+## 4.4 Retrieval ranking is not promotion ranking
 
 OpenClaw separates normal recall scoring from deep promotion scoring.
 
-Its regular `memory_search` combines vector search and BM25, then applies deterministic ranking roughly as:
+Its regular memory search combines lexical/semantic relevance with deterministic adjustments. Dated daily notes use recency decay, while curated files such as `MEMORY.md` and `USER.md` are treated as evergreen.
 
-```text
-hybrid relevance x recency decay x importance multiplier
-```
-
-Dated daily notes currently use a **30-day half-life** in recall, while curated files such as `MEMORY.md` and `USER.md` are evergreen.
-
-The dreaming deep-phase configuration uses a separate, shorter **14-day recency half-life default** for promotion scoring and a bounded age window. These are distinct mechanisms and should not be conflated.
-
-This distinction is directly relevant to AgentScheduler:
+A relevant implementation detail is that the normal recall layer and Dreaming promotion layer use different recency settings. The important design lesson is not the exact default values, but the separation:
 
 - retrieval decay controls what appears near the top of search results
 - promotion scoring controls what deserves durable consolidation
 
 A memory may decay in retrieval priority without losing its historical content.
 
-## 3.5 MMR and diversity
+## 4.5 Diversity
 
-OpenClaw optionally uses Maximal Marginal Relevance (MMR) after search ranking to reduce redundant results.
+OpenClaw supports result diversification such as MMR so that the final result set is not dominated by near-duplicates.
 
-The practical lesson is simple: returning five near-duplicate memories is often worse than returning three complementary ones.
+For AgentScheduler, this should be considered a separate post-ranking concern. First produce a meaningful score, then optionally diversify the top results.
 
-For a simple BM25-first stack, MMR is optional rather than foundational. The more important point is to keep ranking and diversity as separate steps.
-
-## 3.6 Provenance and memory poisoning
+## 4.6 Provenance and memory poisoning
 
 OpenClaw treats provenance as a structural security property, not merely text metadata.
 
-Its architecture distinguishes trusted owner/agent-derived material from untrusted/system-origin content and prevents untrusted memories from being automatically promoted into the curated core.
+Its architecture distinguishes trusted owner/agent-derived material from untrusted/system-origin content and prevents untrusted memories from automatically becoming trusted curated memory.
 
 For AgentScheduler, even a simpler Markdown implementation should preserve at least:
 
@@ -380,22 +431,22 @@ memory:
 
 An external webpage summarized by the agent should never silently become an always-loaded instruction merely because it was retrieved frequently.
 
-## 3.7 Safe rewrite validation
+## 4.7 Safe rewrite validation
 
-OpenClaw stores the pre-image of accepted `MEMORY.md` rewrites and applies rewrite validation. Its memory config documents a default maximum prior-entry-loss fraction of `0.25`.
+OpenClaw snapshots/reviews durable-memory rewrites and applies validation so that a consolidation pass cannot silently destroy large portions of existing memory.
 
-This is a useful safety pattern:
+For Git-backed Markdown, Git already supplies rollback, but a Dreaming report should still record:
 
-- snapshot the previous curated state
-- reject suspiciously destructive rewrites
-- record added/merged/superseded changes
-- make the consolidation result human-reviewable
-
-For Git-backed Markdown, Git already supplies much of the rollback mechanism, but a Dreaming report remains valuable as an audit summary.
+- additions
+- merges
+- supersessions
+- archive actions
+- unresolved conflicts
+- suspiciously destructive proposed rewrites
 
 ---
 
-# 4. llm-wiki-memory: Markdown-first capture, compile, and consolidation
+# 5. llm-wiki-memory: Markdown-first capture, compile, and consolidation
 
 `ctxr-dev/llm-wiki-memory` is one of the closest open-source matches to an Obsidian-based design.
 
@@ -405,7 +456,7 @@ Primary source:
 
 The project keeps memory as local, Git-versioned Markdown and avoids requiring a cloud-backed database as the source of truth.
 
-## 4.1 Storage model
+## 5.1 Storage model
 
 The wiki is divided into categories such as:
 
@@ -425,7 +476,7 @@ session capture -> daily notes -> compile -> durable knowledge / lessons
 
 This fits naturally with an Obsidian vault in which daily and project notes already exist.
 
-## 4.2 Compile vs consolidate
+## 5.2 Compile vs consolidate
 
 A useful distinction is that **compile** and **consolidate** are separate operations.
 
@@ -449,13 +500,13 @@ fallback
 
 Nothing needs to be hard-deleted. Archival is reversible.
 
-## 4.3 Category-specific lifecycle
+## 5.3 Category-specific lifecycle
 
-The wiki layout allows categories to follow different refinement rules. Daily notes, plans, investigation artifacts, and evergreen lessons need not share one global decay/promotion policy.
+Daily notes, plans, investigation artifacts, and evergreen lessons do not need to share one global refinement/decay policy.
 
 This maps well to Obsidian frontmatter and directory-specific policy.
 
-## 4.4 Supersession and preservation
+## 5.4 Supersession and preservation
 
 A central lesson is to treat stale knowledge as **superseded**, not erased.
 
@@ -470,17 +521,16 @@ This preserves historical truth while keeping default retrieval aligned with cur
 
 ---
 
-# 5. Hindsight: observations, evidence, and mental models
+# 6. Hindsight: observations, evidence, and mental models
 
-Hindsight is less suitable as a storage backend for this project because it relies on PostgreSQL/pgvector-style infrastructure, but several of its conceptual layers are highly relevant.
+Hindsight is less suitable as a storage backend for this project because it uses a database-centric stack, but several of its conceptual layers are highly relevant.
 
 Primary sources:
 
 - [Hindsight repository](https://github.com/vectorize-io/hindsight)
-- [Best practices](https://github.com/vectorize-io/hindsight/blob/main/hindsight-docs/src/pages/best-practices.mdx)
-- [Mental models](https://github.com/vectorize-io/hindsight/blob/main/hindsight-docs/src/pages/developer/api/mental-models.mdx)
+- [Hindsight documentation](https://github.com/vectorize-io/hindsight/tree/main/hindsight-docs)
 
-## 5.1 Facts -> observations -> mental models
+## 6.1 Facts -> observations -> mental models
 
 Hindsight distinguishes roughly:
 
@@ -508,9 +558,9 @@ history:
   - Docker was previously used more often.
 ```
 
-New evidence can refine this observation rather than blindly replacing it.
+New evidence can refine the observation rather than blindly replacing it.
 
-## 5.2 Mental models as prepared views
+## 6.2 Mental models as prepared views
 
 Hindsight mental models are prepared, periodically refreshed views over accumulated knowledge, for example:
 
@@ -523,9 +573,14 @@ Deployment procedure
 
 In an Obsidian system, project overview pages or wiki notes can already serve this role. A separate database construct is unnecessary.
 
-## 5.3 Conflict resolution lesson
+## 6.3 Conflict resolution lesson
 
-Hindsight's most important contribution here is the idea that a durable conclusion should retain supporting evidence and evolve as evidence accumulates.
+The useful conceptual model is:
+
+```text
+raw evidence remains immutable
+current conclusion evolves
+```
 
 This is stronger than either:
 
@@ -541,7 +596,7 @@ store every statement forever and hope retrieval chooses correctly
 
 ---
 
-# 6. Basic Memory: Markdown graph primitives
+# 7. Basic Memory: Markdown graph primitives
 
 Basic Memory is a Markdown-first knowledge system exposed through MCP.
 
@@ -572,7 +627,7 @@ For an Obsidian-first system, the useful lesson is structural rather than techno
 
 ---
 
-# 7. Letta / MemGPT: core, recall, and archival memory
+# 8. Letta / MemGPT: core, recall, and archival memory
 
 Letta/MemGPT popularized a useful separation between:
 
@@ -582,9 +637,9 @@ Recall Memory
 Archival Memory
 ```
 
-Primary source:
+Source:
 
-- [Letta documentation and concepts](https://docs.letta.com/)
+- [Letta documentation](https://docs.letta.com/)
 
 A practical translation for AgentScheduler is:
 
@@ -599,15 +654,15 @@ This argues strongly against turning one `MEMORY.md` file into a giant catch-all
 
 ---
 
-# 8. Generative Agents: relevance, recency, importance, reflection
+# 9. Generative Agents: relevance, recency, importance, reflection
 
 The Generative Agents paper introduced one of the best-known memory-retrieval formulations for agents.
 
-Primary source:
+Source:
 
 - [Generative Agents: Interactive Simulacra of Human Behavior](https://arxiv.org/abs/2304.03442)
 
-The system scores memory relevance using three broad factors:
+The system scores memories using three broad factors:
 
 ```text
 relevance
@@ -617,15 +672,15 @@ importance
 
 and periodically creates higher-level **reflections** from accumulated observations.
 
-OpenClaw's architecture clearly builds on this family of ideas, but adds more deterministic promotion gates, usage telemetry, and explicit durable-memory boundaries.
+OpenClaw belongs to this family of ideas but adds deterministic promotion gates, usage telemetry, and stronger boundaries around durable memory.
 
 ---
 
-# 9. MemoryBank: forgetting curves
+# 10. MemoryBank: forgetting curves
 
 MemoryBank explores long-term memory using a forgetting mechanism inspired by Ebbinghaus.
 
-Primary source:
+Source:
 
 - [MemoryBank: Enhancing Large Language Models with Long-Term Memory](https://arxiv.org/abs/2305.10250)
 
@@ -641,11 +696,11 @@ The content stays on disk; only its retrieval or promotion weight decays.
 
 ---
 
-# 10. A-MEM: Zettelkasten-like memory evolution
+# 11. A-MEM: Zettelkasten-like memory evolution
 
 A-MEM is particularly relevant to Obsidian because it treats agent memory more like an evolving Zettelkasten.
 
-Primary source:
+Source:
 
 - [A-MEM: Agentic Memory for LLM Agents](https://arxiv.org/abs/2502.12110)
 
@@ -664,11 +719,11 @@ The key lesson is that consolidation should not merely append new files. It shou
 
 ---
 
-# 11. Sleep-time Compute and offline dreaming
+# 12. Sleep-time Compute and offline dreaming
 
 Sleep-time Compute formalizes the broader idea that expensive preparation can happen before or between user requests rather than on the request-critical path.
 
-Primary source:
+Source:
 
 - [Sleep-time Compute: Beyond Inference Scaling at Test-time](https://arxiv.org/abs/2504.13171)
 
@@ -689,7 +744,7 @@ This is the conceptual justification for a nightly/periodic Dreaming task rather
 
 ---
 
-# 12. Proposed memory layers for an Obsidian/AgentScheduler system
+# 13. Proposed memory layers for an Obsidian/AgentScheduler system
 
 A practical target structure could be:
 
@@ -758,7 +813,7 @@ Properties:
 
 ---
 
-# 13. Proposed Dreaming cycle
+# 14. Proposed Dreaming cycle
 
 The best synthesis of the researched systems is a three-stage process.
 
@@ -839,7 +894,7 @@ This vocabulary is much safer than a simplistic `ADD`/`DELETE` model.
 
 ---
 
-# 14. Conflict resolution model
+# 15. Conflict resolution model
 
 Contradictions should be treated as an evidence problem, not a recency problem.
 
@@ -879,7 +934,7 @@ Evidence is insufficient or equally strong.
 
 Action: retain both and mark the claim as disputed/needs-review rather than pretending certainty.
 
-## 14.1 Evidence priority
+## 15.1 Evidence priority
 
 A useful default hierarchy is:
 
@@ -911,7 +966,7 @@ This prevents a fresh speculative statement from overwriting an older verified d
 
 ---
 
-# 15. Supersession instead of deletion
+# 16. Supersession instead of deletion
 
 Automatic memory maintenance should preserve history.
 
@@ -930,7 +985,7 @@ This is safer than relying on recency alone to hide stale facts.
 
 ---
 
-# 16. Minimal frontmatter extension
+# 17. Minimal frontmatter extension
 
 Existing frontmatter should remain simple. A possible extension is:
 
@@ -958,33 +1013,246 @@ Do not turn frontmatter into a huge knowledge-graph schema. Obsidian links and f
 
 ---
 
-# 17. Retrieval ranking
+# 18. Retrieval architecture: QMD vs a lower-level BM25 layer
 
-Given an existing BM25-capable retrieval layer, the first implementation can remain simple.
+This is an unresolved design decision and should be investigated before implementing the ranker.
 
-Start with a lexical candidate set and apply metadata-aware reranking:
+## 18.1 Why QMD is attractive
+
+The current Obsidian setup already uses QMD. It provides convenient full-text/ranked search over Markdown and therefore appears, at first glance, to be an ideal retrieval backend.
+
+If the memory layer only needed "give me the best matching notes", using QMD directly would be the obvious answer.
+
+## 18.2 Why QMD may be the wrong abstraction for memory ranking
+
+The proposed memory architecture wants to build its **own final ranker**. The desired score is not merely text relevance.
+
+A future ranking pipeline may need something like:
 
 ```text
-retrieval_score =
-    lexical_relevance
-  * recency_factor
-  * importance_factor
-  * status_factor
+raw lexical relevance
+        |
+        +-- recency decay
+        +-- memory importance
+        +-- active/superseded status
+        +-- project/repository scope
+        +-- exact filename/symbol/tag boost
+        +-- provenance/trust constraints
+        +-- previous recall utility
+        |
+        v
+final memory score
+        |
+        v
+optional diversity / MMR
 ```
 
-Optionally add boosts for:
+If QMD internally performs its own re-ranking before returning results, two problems arise:
+
+1. **The original BM25 signal may no longer be available in a clean form.**
+2. **We would be stacking our ranker on top of another ranker whose effects may not be controllable or observable.**
+
+That is undesirable for a memory system where ranking behavior is part of the design and where recall telemetry is later fed back into promotion decisions.
+
+In particular, a result promoted from rank 30 to rank 3 by QMD's internal reranker is semantically different from a result that was rank 3 under raw BM25. If the Dreaming cycle later interprets retrieval rank or relevance as evidence of utility, that distinction matters.
+
+Therefore the assumption "we already have QMD, so retrieval is solved" should be weakened to:
+
+> QMD is useful for interactive vault search, but the memory subsystem may need a lower-level candidate-retrieval API that exposes raw lexical scores and allows AgentScheduler to own final ranking.
+
+## 18.3 Candidate architecture
+
+A clean approach would be:
 
 ```text
-current project
-matching directory
-matching file/symbol
-exact tags
-current repository
+Markdown files
+     |
+     v
+BM25/FTS index
+     |
+     | raw score + path + fields
+     v
+AgentScheduler ranker
+     |
+     +-- recency
+     +-- importance
+     +-- status
+     +-- scope
+     +-- recall history
+     +-- trust/provenance
+     v
+final top-K
 ```
+
+`ripgrep` can remain a separate exact-search path for symbols, filenames, commands, error strings, and debugging queries.
+
+## 18.4 Do not implement BM25 from scratch unless necessary
+
+BM25 itself is not difficult to describe, but building a production-quality text index also involves:
+
+- tokenization
+- document statistics
+- inverted indexes
+- incremental updates
+- field weighting
+- Unicode/language handling
+- persistence
+- deletion/update semantics
+- query parsing
+
+Reimplementing all of that purely to obtain BM25 scores would be wasted effort unless the vault is extremely small.
+
+AgentScheduler is written in Go, so the most relevant current options are:
+
+### Option A: Bleve
+
+[Bleve](https://github.com/blevesearch/bleve) is a mature Go-native indexing/search library. Its current feature set includes BM25 scoring, text/numeric/date fields, query-time boosting, and hybrid/vector capabilities.
+
+Advantages:
+
+- native Go dependency
+- persistent local index
+- BM25 available directly
+- field-aware queries and boosts
+- metadata can be indexed alongside Markdown body
+- no separate daemon required
+- enough flexibility to keep final memory ranking in AgentScheduler
+
+Potential architecture:
+
+```text
+Bleve BM25 -> top N candidates -> custom Go memory ranker -> top K
+```
+
+This is currently the most obvious implementation candidate to prototype first.
+
+Source:
+
+- https://github.com/blevesearch/bleve
+
+### Option B: small dedicated Go BM25 library
+
+A smaller library such as [`crawlab-team/bm25`](https://github.com/crawlab-team/bm25) implements several BM25 variants directly in Go.
+
+Advantages:
+
+- simpler scoring layer
+- easy to understand and control
+- useful for a proof of concept
+
+Disadvantages:
+
+- AgentScheduler would still need to own or build corpus indexing, incremental updates, tokenization policy, persistence, and metadata filtering
+- less attractive as the vault grows
+
+This is useful if the goal is a minimal prototype to test ranking formulas, but less compelling as a complete retrieval backend.
+
+Source:
+
+- https://github.com/crawlab-team/bm25
+
+### Option C: Tantivy through Go bindings
+
+Tantivy is a high-performance Rust search library with BM25. [`anyproto/tantivy-go`](https://github.com/anyproto/tantivy-go) exposes Go bindings and is used by Anytype.
+
+Advantages:
+
+- strong full-text search engine
+- high-performance indexing
+- BM25 is native to Tantivy
+
+Disadvantages:
+
+- Rust/CGo/native-library integration
+- more complex build and distribution story
+- probably excessive for a first AgentScheduler implementation
+
+This is worth considering only if Bleve becomes a measurable bottleneck or search quality/performance requirements grow substantially.
+
+Sources:
+
+- https://github.com/anyproto/tantivy-go
+- https://github.com/quickwit-oss/tantivy
+
+## 18.5 Recommended experiment before choosing
+
+Do not choose QMD or replace it based on architecture aesthetics alone. Build a small retrieval evaluation corpus from real vault queries.
+
+For roughly 30-100 representative queries, record:
+
+- expected useful notes
+- raw BM25 rank
+- QMD rank
+- rank after custom metadata/recency/scope scoring
+- latency
+- index update cost
+
+Test at least these query categories:
+
+```text
+exact filename/symbol
+error message
+project architecture question
+user preference
+recent project state
+old evergreen lesson
+superseded decision
+cross-project generic knowledge
+```
+
+Then compare:
+
+```text
+QMD final results
+vs
+Bleve/raw BM25 + custom ranker
+```
+
+The evaluation question is not merely "which search engine has higher relevance?" It is:
+
+> Which candidate-retrieval layer gives the memory system enough control and observability to produce reliable final ranking and trustworthy recall telemetry?
+
+## 18.6 Current recommendation
+
+Treat QMD as **provisional**, not foundational.
+
+For the first serious memory prototype, evaluate **Bleve BM25 as candidate generation plus a custom AgentScheduler ranker**. Keep QMD for interactive/manual vault search unless the evaluation shows that it can expose sufficiently raw ranking data to support the same design.
+
+This avoids the awkward architecture of custom re-ranking on top of opaque pre-reranking and keeps the promotion feedback loop interpretable.
+
+---
+
+# 19. Proposed final retrieval score
+
+Assuming the system has access to a raw lexical relevance score, start with a transparent formula.
+
+For example:
+
+```text
+base = normalize(bm25)
+
+final = base
+      * recency_factor
+      * importance_factor
+      * status_factor
+      * trust_factor
+      + project_scope_boost
+      + exact_identifier_boost
+```
+
+Alternatively use a weighted additive score if multiplicative suppression proves too aggressive.
+
+The exact formula matters less than these properties:
+
+- every component is observable
+- raw lexical relevance remains available
+- the system can explain why a result ranked highly
+- ranking can be replayed offline
+- telemetry does not depend on hidden upstream ranking
 
 Coding-agent search benefits unusually strongly from exact lexical matches because filenames, symbols, CLI commands, error strings, and project identifiers matter.
 
-## 17.1 Recency
+## 19.1 Recency
 
 For episodic notes:
 
@@ -1009,7 +1277,7 @@ The point is not the exact number. The point is that **memory type controls life
 
 ---
 
-# 18. Recall telemetry as promotion evidence
+# 20. Recall telemetry as promotion evidence
 
 The most valuable idea to copy from OpenClaw/Codex is to log actual retrieval usage.
 
@@ -1019,18 +1287,23 @@ Each recall can produce a tiny event such as:
 {
   "path": "Daily/2026-08-12.md",
   "query": "how is auth deployed",
-  "score": 7.4,
+  "raw_bm25": 7.4,
+  "final_score": 0.86,
+  "rank": 2,
   "timestamp": "2026-08-21T15:42:00Z",
   "project": "AgentScheduler"
 }
 ```
+
+Keeping both `raw_bm25` and `final_score` is important. It makes ranking feedback interpretable.
 
 The Dreaming job can then derive:
 
 - recall count
 - unique-query count
 - cross-day recurrence
-- average relevance
+- average lexical relevance
+- average final rank
 - project diversity or specificity
 - last recalled time
 
@@ -1050,7 +1323,7 @@ The second is much stronger evidence for durable promotion.
 
 ---
 
-# 19. Promotion score
+# 21. Promotion score
 
 A practical first version could adapt OpenClaw's ideas while keeping the formula simple:
 
@@ -1091,7 +1364,7 @@ Observed utility        -> evidence-based consolidation candidate
 
 ---
 
-# 20. Safe consolidation rules
+# 22. Safe consolidation rules
 
 The consolidator should receive:
 
@@ -1119,7 +1392,7 @@ A Git commit provides rollback, but the Dreaming report should still record what
 
 ---
 
-# 21. What not to do
+# 23. What not to do
 
 ## Summarize every session into durable memory
 
@@ -1141,13 +1414,21 @@ This destroys provenance and historical truth.
 
 Coding/project memory contains exact strings whose lexical identity matters. BM25/FTS and `rg` remain first-class tools.
 
+## Stack opaque rerankers
+
+If QMD or another search layer has already significantly reranked the corpus, applying a second custom memory ranker can make relevance and recall telemetry difficult to interpret. Prefer raw candidate scores where possible.
+
+## Reimplement a search engine unnecessarily
+
+If direct control over BM25 is required, use a maintained library such as Bleve before writing tokenization, indexing, persistence, and BM25 machinery from scratch.
+
 ## Regenerate the whole wiki nightly
 
 Prefer incremental consolidation. Large generative rewrites create accidental information loss and noisy Git history.
 
 ---
 
-# 22. Proposed AgentScheduler target architecture
+# 24. Proposed AgentScheduler target architecture
 
 ```text
 Obsidian / Markdown vault
@@ -1161,8 +1442,10 @@ Obsidian / Markdown vault
 Retrieval
 |
 +-- ripgrep               exact lexical search
-+-- BM25 / ranked search  candidate generation
-`-- metadata filters      scope / status / recency
++-- BM25 index            raw candidate generation
+|    `-- likely prototype: Bleve
++-- custom ranker         recency/scope/status/importance/telemetry
+`-- optional diversity   MMR or similar
 
 AgentScheduler Memory Lifecycle
 |
@@ -1177,45 +1460,108 @@ AgentScheduler Memory Lifecycle
 `-- audit report / Git diff
 ```
 
+QMD can remain alongside this for interactive/manual vault search unless evaluation shows that it exposes a sufficiently controllable raw ranking layer.
+
 The main architectural stance is:
 
-> **Do not replace Markdown with a memory platform. Add a memory lifecycle over Markdown.**
+> **Do not replace Markdown with a memory platform. Add a memory lifecycle and controllable retrieval layer over Markdown.**
 
 ---
 
-# 23. Concrete requirements for a follow-up implementation agent
+# 25. Concrete requirements for a follow-up implementation agent
 
 A follow-up agent should work from these requirements:
 
 1. Markdown remains the source of truth.
 2. Existing Daily/project/wiki files remain canonical evidence and durable knowledge.
-3. Retrieval should remain primarily lexical/BM25-friendly; exact code/project strings matter.
-4. Session extraction and global consolidation must be separate processes.
-5. A session may legitimately produce zero memory candidates.
-6. The extraction gate is: **Would this plausibly change how a future agent acts?**
-7. Candidate categories should include decisions, constraints, preferences, validated facts, lessons, failure patterns, procedures, open questions, and project state.
-8. Dreaming should separate extraction/staging, reflection, and durable consolidation.
-9. Consolidation must explicitly support `ADD`, `UPDATE`, `MERGE`, `SUPERSEDE`, `ARCHIVE`, and `IGNORE`.
-10. No automatic hard deletion of memory.
-11. Every durable claim should retain provenance to source evidence.
-12. Conflicts should be resolved using evidence strength, explicit corrections, recurrence, and recency; never recency alone.
-13. If conflict remains unresolved, mark it disputed/needs-review rather than fabricating certainty.
-14. Retrieval usage should be logged and used as promotion evidence.
-15. Repeated recall and query diversity are strong signals that episodic knowledge deserves promotion.
-16. Explicit durable decisions/constraints may bypass recall-count gates.
-17. Episodic memory may decay in retrieval score.
-18. Durable curated knowledge should not decay merely because it is old.
-19. Directory/memory type should control decay and consolidation policy.
-20. Always-loaded/core memory should have a strict size budget.
-21. Project scope, directory, repository, filename, symbol, and tags should be available as ranking boosts.
-22. Consolidation should make minimal, incremental edits rather than regenerate whole notes.
-23. Existing Git history should be used as rollback/audit support.
-24. A human-readable Dreaming report should explain promotions, merges, supersessions, and unresolved conflicts.
-25. External/untrusted content must not automatically become durable instructions.
+3. `ripgrep` remains available for exact code/project strings.
+4. Do not assume QMD is the final memory retrieval engine; evaluate whether its internal reranking conflicts with the need for a custom ranker.
+5. Prefer a retrieval primitive that exposes raw lexical/BM25 scores and metadata.
+6. Prototype Bleve before implementing BM25/indexing infrastructure from scratch.
+7. Session extraction and global consolidation must be separate processes.
+8. A session may legitimately produce zero memory candidates.
+9. The extraction gate is: **Would this plausibly change how a future agent acts?**
+10. Candidate categories should include decisions, constraints, preferences, validated facts, lessons, failure patterns, procedures, open questions, and project state.
+11. Dreaming should separate extraction/staging, reflection, and durable consolidation.
+12. Consolidation must explicitly support `ADD`, `UPDATE`, `MERGE`, `SUPERSEDE`, `ARCHIVE`, and `IGNORE`.
+13. No automatic hard deletion of memory.
+14. Every durable claim should retain provenance to source evidence.
+15. Conflicts should be resolved using evidence strength, explicit corrections, recurrence, and recency; never recency alone.
+16. If conflict remains unresolved, mark it disputed/needs-review rather than fabricating certainty.
+17. Retrieval usage should be logged and used as promotion evidence.
+18. Store raw retrieval score and final memory score separately in telemetry.
+19. Repeated recall and query diversity are strong signals that episodic knowledge deserves promotion.
+20. Explicit durable decisions/constraints may bypass recall-count gates.
+21. Episodic memory may decay in retrieval score.
+22. Durable curated knowledge should not decay merely because it is old.
+23. Directory/memory type should control decay and consolidation policy.
+24. Always-loaded/core memory should have a strict size budget.
+25. Project scope, directory, repository, filename, symbol, and tags should be available as ranking boosts.
+26. Consolidation should make minimal, incremental edits rather than regenerate whole notes.
+27. Existing Git history should be used as rollback/audit support.
+28. A human-readable Dreaming report should explain promotions, merges, supersessions, and unresolved conflicts.
+29. External/untrusted content must not automatically become durable instructions.
+30. Before choosing the search stack, benchmark QMD against raw BM25 + custom ranking on representative real vault queries.
 
 ---
 
-# 24. Recommended source systems to copy from
+# 26. Recommended implementation experiments
+
+Before building the full lifecycle, run three small experiments.
+
+## Experiment 1: retrieval control
+
+Build a tiny Bleve index over a representative subset of Markdown files.
+
+Return:
+
+```text
+path
+raw BM25 score
+summary
+last_updated
+folder/project
+tags
+status
+```
+
+Implement a simple custom reranker using recency and project scope.
+
+Compare results against QMD for representative queries.
+
+## Experiment 2: recall telemetry
+
+Log all memory queries and which results are actually injected/read.
+
+After one or two weeks, inspect whether:
+
+- frequently recalled notes look genuinely promotion-worthy
+- query diversity is informative
+- raw BM25 score correlates with usefulness
+- custom reranking improves recent project-state retrieval without hiding evergreen knowledge
+
+## Experiment 3: Dreaming without writes
+
+Run Extract + Reflect in report-only mode.
+
+Generate candidate actions such as:
+
+```text
+ADD
+MERGE
+SUPERSEDE
+IGNORE
+```
+
+but do not modify durable knowledge yet.
+
+Manually inspect precision before allowing autonomous writes.
+
+This separates three risks: retrieval quality, telemetry quality, and consolidation quality.
+
+---
+
+# 27. Recommended source systems to copy from
 
 ## OpenAI Codex
 
@@ -1242,7 +1588,7 @@ Best source for:
 - recall-frequency/query-diversity utility signals
 - retrieval recency decay
 - provenance and trust boundaries
-- safe consolidation rewrite validation
+- safe consolidation validation
 
 Sources:
 
@@ -1274,10 +1620,9 @@ Best source for:
 - evolving conclusions rather than raw fact replacement
 - mental models as prepared current-state views
 
-Sources:
+Source:
 
 - https://github.com/vectorize-io/hindsight
-- https://github.com/vectorize-io/hindsight/blob/main/hindsight-docs/src/pages/best-practices.mdx
 
 ## Basic Memory
 
@@ -1291,6 +1636,27 @@ Sources:
 - https://github.com/basicmachines-co/basic-memory
 - https://github.com/basicmachines-co/basic-memory/blob/main/docs/semantic-search.md
 
+## Retrieval implementation candidates
+
+### Bleve
+
+Go-native indexing/search library with BM25, field mapping, query boosting, persistence, and optional vector/hybrid functionality.
+
+- https://github.com/blevesearch/bleve
+
+### crawlab-team/bm25
+
+Small Go implementation of several BM25 variants. Useful for experiments but does not replace a complete persistent search index.
+
+- https://github.com/crawlab-team/bm25
+
+### Tantivy / Tantivy-Go
+
+High-performance Rust full-text engine with BM25 plus Go bindings, at higher integration/build complexity.
+
+- https://github.com/quickwit-oss/tantivy
+- https://github.com/anyproto/tantivy-go
+
 ## Research
 
 - Generative Agents — relevance + recency + importance + reflection: https://arxiv.org/abs/2304.03442
@@ -1300,7 +1666,7 @@ Sources:
 
 ---
 
-# 25. Bottom line
+# 28. Bottom line
 
 AgentScheduler already has the right primitive ingredients: scheduled jobs, raw session exports, durable Markdown, and a small always-loaded memory file.
 
@@ -1309,7 +1675,8 @@ The next meaningful step is not another storage backend. It is to turn the curre
 ```text
 session evidence
     -> extract only high-signal candidates
-    -> observe what is actually recalled
+    -> retrieve through a controllable lexical layer
+    -> record what is actually recalled
     -> reflect across days/sessions
     -> qualify promotion deterministically
     -> consolidate minimally
@@ -1317,4 +1684,6 @@ session evidence
     -> retain provenance and audit trail
 ```
 
-This combines the strongest parts of Codex, OpenClaw, llm-wiki-memory, and Hindsight while preserving the transparency and editability of plain Markdown.
+The important retrieval caveat is now explicit: **QMD should not automatically be treated as the memory engine merely because it is already installed.** If its internal re-ranking prevents access to clean candidate scores or makes our own ranking/telemetry opaque, a lower-level BM25 implementation is architecturally cleaner. In a Go codebase, Bleve is the first candidate worth prototyping; a small BM25 library is suitable for experiments, and Tantivy-Go is a higher-complexity option if performance eventually demands it.
+
+This combines the strongest parts of Codex, OpenClaw, llm-wiki-memory, and Hindsight while preserving the transparency and editability of plain Markdown and keeping the final memory ranking under AgentScheduler's control.
