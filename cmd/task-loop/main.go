@@ -894,7 +894,21 @@ func splitShellWords(command string) ([]string, error) {
 
 func applyTaskPlaceholders(text string, scheduledFor time.Time) string {
 	local := scheduledFor.In(scheduleLocation)
-	return strings.ReplaceAll(strings.ReplaceAll(text, "YYYY-MM-DD", local.Format("2006-01-02")), "YYYY-Www", isoWeek(local))
+	return strings.ReplaceAll(
+		strings.ReplaceAll(
+			strings.ReplaceAll(text, "NEXT-BUSINESS-DAY", nextBusinessDay(local).Format("2006-01-02")),
+			"YYYY-MM-DD", local.Format("2006-01-02"),
+		),
+		"YYYY-Www", isoWeek(local),
+	)
+}
+
+func nextBusinessDay(date time.Time) time.Time {
+	next := date.AddDate(0, 0, 1)
+	for next.Weekday() == time.Saturday || next.Weekday() == time.Sunday {
+		next = next.AddDate(0, 0, 1)
+	}
+	return next
 }
 
 func isoWeek(t time.Time) string {

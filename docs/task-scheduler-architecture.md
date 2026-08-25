@@ -208,7 +208,7 @@ Strong default: use `run-latest`. Catching up every missed task after a week off
 8. Run one real scheduler pass only when the expected task slot should be due.
 9. Inspect recent attempts with `sqlite3 agentscheduler.db 'select task_id, scheduled_for, status, error from task_runs order by started_at desc limit 20;'`.
 
-Tasks may use `YYYY-MM-DD` or `YYYY-Www` placeholders, which the scheduler resolves against the `scheduled_for` slot in `Europe/Berlin` time at run time. Feature-specific scripts in sibling repositories should use the same timezone for their date handling.
+Tasks may use `YYYY-MM-DD`, `YYYY-Www`, or `NEXT-BUSINESS-DAY` placeholders. The scheduler resolves them against the `scheduled_for` slot in `Europe/Berlin` time at run time; `NEXT-BUSINESS-DAY` skips Saturday and Sunday. Feature-specific scripts in sibling repositories should use the same timezone for their date handling.
 
 ### How to run the scheduler
 
@@ -289,7 +289,7 @@ Important implementation details:
 
 - Cron matching supports standard 5-field expressions with `*`, lists, ranges, and steps.
 - Day-of-week accepts both `0` and `7` as Sunday.
-- Schedule slots and `YYYY-MM-DD` / `YYYY-Www` placeholders are evaluated in `Europe/Berlin`, including CET/CEST transitions. Runtime timestamps remain stored in UTC.
+- Schedule slots and `YYYY-MM-DD` / `YYYY-Www` / `NEXT-BUSINESS-DAY` placeholders are evaluated in `Europe/Berlin`, including CET/CEST transitions. Runtime timestamps remain stored in UTC.
 - Duplicate runs are blocked by the SQLite unique key on `(task_id, scheduled_for)`.
 - Shell tasks are restricted by an allowlist and lightweight quote/escape parsing before execution.
 - `kind: opencode` tasks run `opencode run -m <model> [--variant <thinking>] <instruction>`.

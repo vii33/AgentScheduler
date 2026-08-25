@@ -59,6 +59,24 @@ func TestTaskPlaceholdersUseEuropeBerlinBusinessDate(t *testing.T) {
 	}
 }
 
+func TestTaskPlaceholdersUseNextBusinessDay(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		scheduledFor string
+		want         string
+	}{
+		{name: "Monday targets Tuesday", scheduledFor: "2026-08-10T13:00:00Z", want: "date=2026-08-11"},
+		{name: "Friday targets Monday", scheduledFor: "2026-08-14T13:00:00Z", want: "date=2026-08-17"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := applyTaskPlaceholders("date=NEXT-BUSINESS-DAY", mustTime(t, test.scheduledFor))
+			if got != test.want {
+				t.Fatalf("expected %q, got %q", test.want, got)
+			}
+		})
+	}
+}
+
 func TestRunLatestKeepsOnlyNewestMissedSlot(t *testing.T) {
 	tasks := []task{{
 		ID:       "frequent",

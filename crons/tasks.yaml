@@ -1,17 +1,24 @@
 tasks:
   - id: weekday-daily-attendees-0820
     enabled: true
-    schedule: "20 8 * * 1-5"
-    missed: skip
+    schedule: "0 8 * * 1-5"
+    missed: run-latest
+    kind: shell
+    command: "../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
+
+  - id: weekday-daily-attendees-0830
+    enabled: true
+    schedule: "30 8 * * 1-5"
+    missed: run-latest
     kind: shell
     command: "../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
 
   - id: weekday-daily-attendees-1500
     enabled: true
     schedule: "0 15 * * 1-5"
-    missed: skip
+    missed: run-latest
     kind: shell
-    command: "../teams-daily-bot/scripts/reconcile-daily-attendees.sh YYYY-MM-DD"
+    command: "../teams-daily-bot/scripts/reconcile-daily-attendees.sh NEXT-BUSINESS-DAY"
 
   - id: daily-export-0800
     enabled: false
@@ -106,3 +113,10 @@ tasks:
       - Keep edits minimal and reviewable.
       - Use Obsidian wikilinks, not absolute file links.
       - Report the files changed and any unresolved ambiguities.
+
+  - id: daily-qmd-update-embed
+    enabled: true
+    schedule: "0 12 * * *"
+    missed: run-latest
+    kind: shell
+    command: "qmd update && qmd embed"
